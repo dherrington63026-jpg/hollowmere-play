@@ -81,7 +81,7 @@ html, body { overscroll-behavior: none; touch-action: none; }
 @media (max-height: 560px) {
   #pad { transform: scale(0.6); transform-origin: 100% 100%; right: 10px; bottom: 8px; }
   #hud { transform: scale(0.66); transform-origin: 0 0; left: 10px; top: 8px; }
-  #partybar { transform: scale(0.72); transform-origin: 0 0; left: 12px; top: 64px; }
+  #partybar { transform: scale(0.9); transform-origin: 0 0; left: 12px; top: 64px; }
   #roomLabel b { font-size: 17px; } #roomLabel small { font-size: 9px; } #roomLabel { top: 6px; }
   #bossbar { top: 44px; width: 380px; } #bossbar b { font-size: 14px; }
   #topright { right: 10px; top: 8px; transform: scale(0.8); transform-origin: 100% 0; }

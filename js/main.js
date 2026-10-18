@@ -441,6 +441,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); doDodge(); }
   if (e.code === 'Digit1') useSkill(0); if (e.code === 'Digit2') useSkill(1); if (e.code === 'Digit3') useSkill(2); if (e.code === 'Digit4') useSkill(3);
   if (e.code === 'KeyQ') drinkPotion();
+  if (e.code === 'Tab') { e.preventDefault(); swapHero(); }
   if (e.code === 'KeyR') { const a = alive(), i = a.indexOf(G.hero); setLead(a[(i + 1) % a.length]); }
 });
 addEventListener('keyup', (e) => { keys[e.code] = false; });
@@ -520,6 +521,8 @@ const ab = $('#btnAttack');
 ab.addEventListener('pointerdown', (e) => { e.preventDefault(); attackHeld = true; });
 addEventListener('pointerup', () => { attackHeld = false; });
 document.querySelectorAll('#pad [data-i]').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); useSkill(+b.dataset.i); }));
+const swapHero = () => { if (!G || G.over) return; const a = alive(); if (a.length > 1) setLead(a[(a.indexOf(G.hero) + 1) % a.length]); };
+$('#btnSwap').addEventListener('pointerdown', (e) => { e.preventDefault(); swapHero(); });
 $('#btnDodge').addEventListener('pointerdown', (e) => { e.preventDefault(); doDodge(); });
 $('#btnPotion').addEventListener('pointerdown', (e) => { e.preventDefault(); drinkPotion(); });
 $('#btnAuto').addEventListener('click', () => { if (!G) return; G.auto = !G.auto; $('#btnAuto').classList.toggle('on', G.auto); });
