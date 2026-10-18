@@ -1099,6 +1099,8 @@ function aiUnit(h, dt) {
   if (isLead && G.auto && !G.talking) { // nothing to fight right now: walk to the next enemy, saving the boss for last
     const foes = G.enemies.filter((e) => !e.dead), rest = foes.filter((e) => !e.E.boss), pool = rest.length ? rest : foes;
     let t = null, bd = 1e9; for (const e of pool) { const d = flat(e.g.position, h.g.position); if (d < bd) { bd = d; t = e; } }
+    // loot first: walk over to anything still lying around before the next fight
+    let ld = 1e9; for (const d of G.drops) { if (d.dead) continue; const dd = flat(d.o.position, h.g.position); if (dd < ld) { ld = dd; t = d.tgt || (d.tgt = { g: { position: d.o.position }, E: {} }); } }
     if (t) {
       h.aT = (h.aT || 0) - dt;
       if (!h.apath || !h.apath.length || h.aT <= 0 || h.aTarget !== t) { h.apath = findPath(h.g.position, t.g.position); h.aT = 1.2; h.aTarget = t; }
@@ -1293,18 +1295,22 @@ function dropItem(pos, src) {
   G.drops.push({ kind: 'item', o: g, gem, lbl, rar, item: it, color: R.color, t: 0 });
   sfx('loot');
 }
+function pickupDrop(d, who) {
+  d.dead = true; scene.remove(d.o);
+  if (d.kind === 'meat') { SAVE.story.meat++; persist(); floatText(who.g.position, `Wolf meat ${SAVE.story.meat}/${MEAT_NEED}`, 'info', 3.2); toast(`Wolf meat (${SAVE.story.meat}/${MEAT_NEED})`, '#ff9a8a'); sfx('loot'); }
+  else if (d.kind === 'gold') { G.gold += d.amount; floatText(who.g.position, `+${d.amount} gold`, 'info', 3.2); sfx('coin'); }
+  else { G.loot.push(d.item); d.lbl.remove(); toast(`<img src="art/icon_${iconOf(d.item)}.png" alt=""> <span style="color:${d.color}">${d.item.name}</span>`, d.color); sfx('loot'); }
+}
+// everything still on the floor goes into the bag when a run ends
+function collectAllDrops() { const who = alive()[0] || G.hero; for (const d of G.drops) if (!d.dead) pickupDrop(d, who); G.drops = []; }
 function updateDrops(dt) {
+  const reach = G.auto ? 7 : 1.6; // AFK: loot is pulled in from further away
   for (const d of G.drops) {
     d.t += dt;
     if (d.gem) { d.gem.rotation.y += dt * 2; d.gem.position.y = 0.6 + Math.sin(d.t * 3) * 0.12; }
     if (d.kind === 'meat') { for (const o of d.o.children) if (o.geometry && o.geometry.type === 'CylinderGeometry' && o.material.transparent) o.rotation.y += dt; }
-    const who = d.t > 0.5 ? alive().find((u) => flat(d.o.position, u.g.position) < (d.kind === 'gold' ? 1.8 : 1.6)) : null;
-    if (who) {
-      d.dead = true; scene.remove(d.o);
-      if (d.kind === 'meat') { SAVE.story.meat++; persist(); floatText(who.g.position, `Wolf meat ${SAVE.story.meat}/${MEAT_NEED}`, 'info', 3.2); toast(`Wolf meat (${SAVE.story.meat}/${MEAT_NEED})`, '#ff9a8a'); sfx('loot'); }
-      else if (d.kind === 'gold') { G.gold += d.amount; floatText(who.g.position, `+${d.amount} gold`, 'info', 3.2); sfx('coin'); }
-      else { G.loot.push(d.item); d.lbl.remove(); toast(`<img src="art/icon_${iconOf(d.item)}.png" alt=""> <span style="color:${d.color}">${d.item.name}</span>`, d.color); sfx('loot'); }
-    }
+    const who = d.t > 0.5 ? alive().find((u) => flat(d.o.position, u.g.position) < (d.kind === 'gold' ? Math.max(1.8, reach) : reach)) : null;
+    if (who) pickupDrop(d, who);
   }
   G.drops = G.drops.filter((d) => !d.dead);
 }
@@ -1405,7 +1411,7 @@ function updateCamera(dt, snap) {
 }
 
 // ---------------- results ----------------
-function victory() { if (!G || G.over) return; G.over = true; for (const u of alive()) u.anim.play('Cheer'); showResult(true); }
+function victory() { if (!G || G.over) return; G.over = true; collectAllDrops(); for (const u of alive()) u.anim.play('Cheer'); showResult(true); }
 function finishRun(won) {
   for (const u of G.party) { u.hs.level = u.level; u.hs.xp = Math.floor(u.xp); }
   SAVE.gold += G.gold; SAVE.runs++;
@@ -1427,6 +1433,7 @@ function cleanupRun() {
 }
 function showResult(won) {
   if (G.story) return showStoryDefeat();
+  collectAllDrops();
   finishRun(won);
   const cards = G.loot.slice().sort((a, b) => b.rar - a.rar).map((it, i) => `<div class="lcard r${it.rar}" style="--r:${RARITIES[it.rar].color};animation-delay:${0.4 + i * 0.15}s"><img src="art/icon_${iconOf(it)}.png" alt=""><b>${it.name}</b><small>${RARITIES[it.rar].name}</small></div>`).join('') || '<p class="empty" style="align-self:center">No gear picked up.</p>';
   const lv = G.party.map((u) => `<div class="rstat"><small>${u.C.name}</small><b>Lv ${u.level}</b></div>`).join('');
