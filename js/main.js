@@ -474,7 +474,7 @@ function newGame(tier, opts = {}) {
     mulHp: story ? STORY_HP : PARTY_HP_MULT * SIZE_HP[Math.min(n, 4)], mulAtk: story ? STORY_ATK : PARTY_ATK_MULT * SIZE_ATK[Math.min(n, 4)] };
   if (map === 'crypt') spawnRooms(); else if (map === 'trail') spawnTrail(!!opts.hunt); else spawnTown();
   buildPartyBar(); setLead(units[0], true);
-  $('#btnAuto').classList.remove('on'); $('#bossbar').classList.remove('on'); syncAutoSk();
+  G.auto = !story && !!SAVE.autoCombat; $('#btnAuto').classList.toggle('on', G.auto); $('#bossbar').classList.remove('on'); syncAutoSk();
   $('#hud3').classList.remove('hidden'); $('#hud3').classList.toggle('story', story); document.body.classList.toggle('story', story);
   $('#talk').classList.remove('on'); $('#dlg').classList.remove('on');
 }
@@ -817,7 +817,7 @@ const swapHero = () => { if (!G || G.over) return; const a = alive(); if (a.leng
 $('#btnSwap').addEventListener('pointerdown', (e) => { e.preventDefault(); swapHero(); });
 $('#btnDodge').addEventListener('pointerdown', (e) => { e.preventDefault(); doDodge(); });
 $('#btnPotion').addEventListener('pointerdown', (e) => { e.preventDefault(); drinkPotion(); });
-$('#btnAuto').addEventListener('click', () => { if (!G) return; G.auto = !G.auto; $('#btnAuto').classList.toggle('on', G.auto); });
+$('#btnAuto').addEventListener('click', () => { if (!G) return; G.auto = !G.auto; SAVE.autoCombat = G.auto; persist(); $('#btnAuto').classList.toggle('on', G.auto); if (G.auto) { G.hero.path = null; G.hero.target = null; } });
 
 // ---------------- combat helpers ----------------
 const tmpV = new THREE.Vector3();
@@ -1095,6 +1095,16 @@ function aiUnit(h, dt) {
     else if (h.C.ranged && d < 3.5) { const away = h.g.position.clone().add(h.g.position.clone().sub(tgt.g.position)); moveUnit(h, away, dt, 0.8); }
     else { faceTo(h, angleTo(h.g.position, tgt.g.position), dt); startAttack(h); }
     return;
+  }
+  if (isLead && G.auto && !G.talking) { // nothing to fight right now: walk to the next enemy, saving the boss for last
+    const foes = G.enemies.filter((e) => !e.dead), rest = foes.filter((e) => !e.E.boss), pool = rest.length ? rest : foes;
+    let t = null, bd = 1e9; for (const e of pool) { const d = flat(e.g.position, h.g.position); if (d < bd) { bd = d; t = e; } }
+    if (t) {
+      h.aT = (h.aT || 0) - dt;
+      if (!h.apath || !h.apath.length || h.aT <= 0 || h.aTarget !== t) { h.apath = findPath(h.g.position, t.g.position); h.aT = 1.2; h.aTarget = t; }
+      while (h.apath.length > 1 && flat(h.apath[0], h.g.position) < 1.2) h.apath.shift();
+      moveUnit(h, h.apath[0] || t.g.position, dt, 1); return;
+    }
   }
   if (!isLead) {
     const f = FORMATION[h.slot], want = new THREE.Vector3(lead.g.position.x + f[0], 0, lead.g.position.z + f[1]), d = flat(want, h.g.position);
