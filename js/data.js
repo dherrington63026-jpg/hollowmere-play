@@ -149,11 +149,24 @@ export function autoEquip(save, hs) {
 export const STAT_LABEL = { hp: 'Health', atk: 'Attack', def: 'Defense', crit: 'Crit %', haste: 'Speed %' };
 export const WEAPON_FOR = { sword: 'sword', staff: 'staff', bow: 'bow', axe: 'axe', daggers: 'daggers' };
 
-export function makeItem(save, ilvl, tier, minRar = 0, slot = null, weaponKind = null, armorType = null) {
+// loot tables by source and dungeon tier (columns: white green blue purple gold red)
+// mobs drop white-blue, elites white-purple, bosses blue-red with only a small gold/red chance; deeper dungeons shift every table up
+export const LOOT_TABLES = {
+  mob: [[65, 28, 7], [55, 32, 13], [45, 35, 20], [35, 37, 28]],
+  elite: [[40, 32, 20, 8], [30, 32, 24, 14], [22, 30, 27, 21], [15, 27, 30, 28]],
+  boss: [[0, 0, 55, 36, 7.5, 1.5], [0, 0, 44, 42, 11.5, 2.5], [0, 0, 34, 46, 16, 4], [0, 0, 25, 47, 22, 6]],
+};
+export function rollRarity(src, tier) {
+  const t = LOOT_TABLES[src] || LOOT_TABLES.mob, w = t[Math.min(tier, t.length - 1)];
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < w.length; i++) { if (r < w[i]) return i; r -= w[i]; }
+  return w.length - 1;
+}
+export function makeItem(save, ilvl, tier, minRar = 0, slot = null, weaponKind = null, armorType = null, forceRar = null) {
   const w = RARITY_WEIGHTS[Math.min(tier, RARITY_WEIGHTS.length - 1)];
   let r = Math.random() * w.reduce((a, b) => a + b), rar = 0;
   while (rar < w.length - 1 && r > w[rar]) { r -= w[rar]; rar++; }
-  rar = Math.max(rar, minRar);
+  rar = forceRar != null ? forceRar : Math.max(rar, minRar);
   slot = slot || pick(SLOTS);
   const isArmor = ARMOR_SLOTS.includes(slot), armor = isArmor ? (armorType || pick(['heavy', 'medium', 'light'])) : null;
   const kind = slot === 'weapon' ? (weaponKind || pick(['sword', 'staff', 'bow', 'axe', 'daggers'])) : isArmor ? ARMOR_TYPES[armor].icon + '_' + slot : slot;

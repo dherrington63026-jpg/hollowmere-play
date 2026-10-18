@@ -103,7 +103,7 @@ function gearView() {
   return `<div class="gear-grid2">${frame(`<h2 class="ftitle">${h.name} <small>Lv ${h.level} ${C.name}</small></h2><div class="armornote"><b>${AT.label} armor · ${AT.name}</b> <span>${AT.blurb}</span></div>${setPanel(h)}
       <div class="doll2"><div class="dcol">${left}</div><div class="dhero"><img src="${portrait(h)}" alt=""></div><div class="dcol">${right}</div></div>
       <div class="statrow">${['hp', 'atk', 'def', 'crit', 'haste'].map((k) => `<div class="stat"><small>${STAT_LABEL[k]}</small><b>${fmtStat(k, st[k])}</b></div>`).join('')}</div>`)}
-    ${frame(`<div class="baghead"><h2 class="ftitle">Bag <small>${SAVE.bag.length} / 60</small></h2><div class="bagbtns"><button class="btn btn-gold btn-sm" data-autoequip="1"><span>Auto equip ${h.name}</span></button><button class="btn btn-gold btn-sm" data-autoequipall="1"><span>Auto equip party</span></button><button class="btn btn-steel btn-sm" data-salvageweak="1"><span>Salvage weak gear</span></button></div></div><div class="bag2">${bagHtml}</div>`, 'bagframe')}
+    ${frame(`<div class="baghead"><h2 class="ftitle">Bag <small>${SAVE.bag.length} / 60</small></h2><div class="bagbtns"><button class="btn btn-gold btn-sm" data-autoequip="1"><span>Auto equip ${h.name}</span></button><button class="btn btn-gold btn-sm" data-autoequipall="1"><span>Auto equip party</span></button><button class="btn btn-steel btn-sm" data-sellrar="0"><span>Sell all white</span></button><button class="btn btn-steel btn-sm" data-sellrar="1"><span>Sell all green</span></button><button class="btn btn-steel btn-sm" data-sellrar="2"><span>Sell all blue</span></button></div></div><div class="bag2">${bagHtml}</div>`, 'bagframe')}
     <div class="side2">${heroPickerMini()}${frame(itemDetail(h))}</div></div>`;
 }
 function setPanel(h) {
@@ -129,13 +129,13 @@ function itemDetail(h) {
     <div class="iname" style="color:${R.color}">${it.name}${it.up ? ' +' + it.up : ''}</div><div class="irar">${R.name} ${AT ? AT.name + ' ' : ''}${SLOT_INFO[it.slot].label} · item level ${it.ilvl} · ${where}</div>${AT ? `<div class="wearnote ${wear ? 'ok' : 'no'}">${AT.label} armor · worn by ${AT.who}${wear ? '' : ' (not ' + h.name + ')'}</div>` : ''}${WP ? `<div class="wearnote ${wear ? 'ok' : 'no'}">${it.kind} · ${wear ? 'usable by ' + h.name : h.name + ' uses ' + WP + 's'}</div>` : ''}${rows}
     <div class="row">${eq ? `<button class="btn btn-steel grow" data-unequip="${it.id}"><span>Unequip</span></button>` : `<button class="btn btn-gold grow" data-equip="${it.id}" ${wear ? '' : 'disabled'}><span>${wear ? 'Equip on ' + h.name : 'Wrong armor type'}</span></button>`}
       <button class="btn btn-steel grow" data-upgrade="${it.id}" ${SAVE.gold < upCost(it) || (it.up || 0) >= 15 ? 'disabled' : ''}><span>Upgrade +${(it.up || 0) + 1} · ${upCost(it)}g</span></button>
-      ${f.owner ? '' : `<button class="btn btn-steel" data-salvage="${it.id}"><span>Salvage ${salvageValue(it)}g</span></button>`}</div>`;
+      ${f.owner ? '' : `<button class="btn btn-steel" data-salvage="${it.id}"><span>Sell for ${salvageValue(it)}g</span></button>`}</div>`;
 }
 
 // ---------- actions ----------
 function takeFrom(f) { if (f.owner) { for (const s of SLOTS) if (f.owner.gear[s] && f.owner.gear[s].id === f.it.id) delete f.owner.gear[s]; } else { const i = SAVE.bag.findIndex((x) => x.id === f.it.id); if (i >= 0) SAVE.bag.splice(i, 1); } }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-salvageweak],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
+  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-sellrar],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
   if (!t || hub.classList.contains('hidden') || !hub.contains(t)) return;
   const d = t.dataset;
   if (d.tab) { ui.tab = d.tab; ui.item = null; }
@@ -151,6 +151,17 @@ document.addEventListener('click', (e) => {
   else if (d.unequip) { const f = findItem(+d.unequip); if (f && SAVE.bag.length < 60) { takeFrom(f); SAVE.bag.push(f.it); ui.item = f.it.id; save(); } }
   else if (d.upgrade) { const f = findItem(+d.upgrade); if (f && SAVE.gold >= upCost(f.it) && (f.it.up || 0) < 15) { SAVE.gold -= upCost(f.it); f.it.up = (f.it.up || 0) + 1; save(); } }
   else if (d.salvage) { const i = SAVE.bag.findIndex((x) => x.id === +d.salvage); if (i >= 0) { SAVE.gold += salvageValue(SAVE.bag[i]); SAVE.bag.splice(i, 1); ui.item = null; save(); } }
+  else if (d.sellrar != null) {
+    const r = +d.sellrar; let g = 0, n = 0, kept = 0;
+    SAVE.bag = SAVE.bag.filter((it) => {
+      if (it.rar !== r) return true;
+      // keep anything that would be a real upgrade for a hero who can wear it
+      if (SAVE.heroes.some((x) => canWear(x, it) && itemScoreFor(x.cls, it) > itemScoreFor(x.cls, x.gear[it.slot]))) { kept++; return true; }
+      g += salvageValue(it); n++; return false;
+    });
+    SAVE.gold += g; ui.item = null; save();
+    ui.msg = n ? `Sold ${n} ${RARITIES[r].name.toLowerCase()} item${n === 1 ? '' : 's'} for ${g} gold.${kept ? ` Kept ${kept} that would upgrade a hero.` : ''}` : kept ? `Kept ${kept} ${RARITIES[r].name.toLowerCase()} item${kept === 1 ? '' : 's'} that would upgrade a hero.` : `No ${RARITIES[r].name.toLowerCase()} gear to sell.`;
+  }
   else if (d.salvageweak) { const h = hero(); let g = 0; SAVE.bag = SAVE.bag.filter((it) => { const users = SAVE.heroes.filter((x) => canWear(x, it)); if (it.rar <= 1 && users.every((x) => itemScore(it) <= itemScore(x.gear[it.slot]))) { g += salvageValue(it); return false; } return true; }); SAVE.gold += g; ui.item = null; save(); }
   else if (d.join) { if (SAVE.party.length < 4) { SAVE.party.push(d.join); save(); } }
   else if (d.bench) { if (SAVE.party.length > 1) { SAVE.party = SAVE.party.filter((x) => x !== d.bench); save(); } }

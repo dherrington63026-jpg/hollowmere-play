@@ -9,7 +9,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp } from './data.js';
+import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, rollRarity, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp } from './data.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -612,8 +612,9 @@ function killEnemy(e) {
   for (const u of alive()) { u.xp += xp * 0.6; u.hs.xp = u.xp; while (u.xp >= XP_NEED(u.level)) levelUp(u); }
   const gold = Math.round(rnd(3, 9) * (1 + 0.5 * (e.lvl - 1)) * (e.E.boss ? 12 : 1));
   dropGold(e.g.position, gold);
-  const n = e.E.boss ? 3 : Math.random() < 0.35 ? 1 : 0;
-  for (let i = 0; i < n; i++) dropItem(e.g.position.clone().add(new THREE.Vector3(rnd(-1.6, 1.6), 0, rnd(-1.6, 1.6))), e.E.boss ? 1 + (i === 0 ? 1 : 0) : 0);
+  const src = e.E.boss ? 'boss' : e.E.heavy ? 'elite' : 'mob';
+  const n = src === 'boss' ? 3 : src === 'elite' ? (Math.random() < 0.7 ? 1 : 0) : Math.random() < 0.35 ? 1 : 0;
+  for (let i = 0; i < n; i++) dropItem(e.g.position.clone().add(new THREE.Vector3(rnd(-1.6, 1.6), 0, rnd(-1.6, 1.6))), src);
   if (e.E.boss) { setTimeout(victory, 2600); G.shake = 1; }
   sfx('kill');
 }
@@ -971,12 +972,12 @@ function dropGold(pos, amount) {
   const o = cloneStatic('coin_stack_small'); o.position.copy(pos).add(new THREE.Vector3(rnd(-0.6, 0.6), 0, rnd(-0.6, 0.6))); scene.add(o);
   G.drops.push({ kind: 'gold', o, amount, t: 0 });
 }
-function dropItem(pos, minRar) {
+function dropItem(pos, src) {
   // most drops are things somebody in the party can actually use
   const ph = partyHeroes(SAVE), usable = Math.random() < 0.8 && ph.length;
   const pick1 = (a) => a[Math.floor(Math.random() * a.length)], slot = pick1(['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet']);
   const who = usable ? pick1(ph) : null;
-  const it = makeItem(SAVE, Math.max(TIERS[TIER].lvl, avgPartyLevel(SAVE)), TIER, minRar, slot, who && slot === 'weapon' ? CLASSES[who.cls].weapon : null, who && ['helm', 'armor', 'boots'].includes(slot) ? CLASSES[who.cls].armor : null), R = RARITIES[it.rar], rar = it.rar;
+  const it = makeItem(SAVE, Math.max(TIERS[TIER].lvl, avgPartyLevel(SAVE)), TIER, 0, slot, who && slot === 'weapon' ? CLASSES[who.cls].weapon : null, who && ['helm', 'armor', 'boots'].includes(slot) ? CLASSES[who.cls].armor : null, rollRarity(src, TIER)), R = RARITIES[it.rar], rar = it.rar;
   const g = new THREE.Group(); g.position.copy(pos);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.35, rar >= 2 ? 7 : 3.5, 12, 1, true), glowMat(R.color, 0.55)); beam.position.y = rar >= 2 ? 3.5 : 1.75;
   const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshStandardMaterial({ color: R.color, emissive: R.color, emissiveIntensity: 1.4, roughness: 0.3 })); gem.position.y = 0.6;
