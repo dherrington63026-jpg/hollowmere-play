@@ -89,3 +89,8 @@ html, body { overscroll-behavior: none; touch-action: none; }
   .toast { font-size: 12px; min-width: 240px; }
   .dmg { font-size: 22px; } .dmg.crit { font-size: 30px; }
 }
+
+/* mana */
+.mp { height: 9px; margin-top: 5px; border-radius: 5px; overflow: hidden; background: #060a14; box-shadow: 0 0 0 1px #000, 0 0 0 2px #2a4f8a; }
+.mp i { display: block; height: 100%; background: linear-gradient(#9fd0ff, #3a7be0 55%, #1f4aa8); box-shadow: 0 0 8px #4a90ff; transition: width 0.1s; }
+.orb.nomana img { filter: grayscale(0.8) brightness(0.6); } .orb.nomana { box-shadow: 0 0 0 3px #120e14, 0 0 0 6px #35508a, 0 0 0 9px #120e14; }

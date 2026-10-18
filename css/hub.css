@@ -115,3 +115,8 @@
   .result h1 { font-size: 52px; } .lcard { width: 92px; height: 130px; } .lcard img { width: 60px; height: 60px; } .lootcards { min-height: 130px; }
   .rstat b { font-size: 18px; } .rstat { min-width: 90px; padding: 6px 10px; }
 }
+
+.strow.off { opacity: 0.42; } .strow.off .stname small { color: #ff9a8a; }
+.strow { grid-template-columns: 1.8fr 0.5fr auto; } .statrow.six { grid-template-columns: repeat(6, 1fr); margin: 12px 0 8px; }
+
+.bagbtns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

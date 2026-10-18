@@ -1,7 +1,7 @@
 // Camp / hub screens: Camp (dungeons + idle rewards), Party, Skills (4 slots), Gear (6 colours).
 import { CLASSES, SKILLS, RARITIES, SLOTS, SLOT_INFO, STAT_LABEL, TIERS, heroStats, heroPower, itemStat, itemScore, upCost, salvageValue, skillUsable, skillAllowed,
-  partyHeroes, avgPartyLevel, idlePreview, claimIdle, XP_NEED, IDLE_CAP_MIN, ARMOR_TYPES, canWear, setInfo,
-  STAT_PER_POINT, STAT_POINT_LABEL, STAT_POINT_NOTE, pointsUnspent, pointsSpent, resetCost } from './data.js';
+  partyHeroes, avgPartyLevel, idlePreview, claimIdle, XP_NEED, IDLE_CAP_MIN, ARMOR_TYPES, canWear, setInfo, itemScoreFor, autoEquip,
+  STAT_KEYS, STAT_POINT_LABEL, statNote, statApplies, EMPTY_PTS, pointsUnspent, pointsSpent, resetCost } from './data.js';
 
 const $ = (s) => document.querySelector(s);
 const hub = $('#hub');
@@ -27,12 +27,15 @@ function heroPicker() {
 // ---------- STATS ----------
 function statsView() {
   const h = hero(), C = CLASSES[h.cls], st = heroStats(h), un = pointsUnspent(h);
-  const rows = Object.keys(STAT_PER_POINT).map((k) => `<div class="strow"><div class="stname"><b>${STAT_POINT_LABEL[k]}</b><small>${STAT_POINT_NOTE[k]} per point</small></div>
-    <div class="stval"><small>${STAT_LABEL[k]}</small><b>${fmtStat(k, st[k])}</b></div><div class="stpts"><small>Points</small><b>${(h.pts && h.pts[k]) || 0}</b></div>
-    <div class="stbtns"><button class="mini big" data-pt="${k}" ${un > 0 ? '' : 'disabled'}>+1</button><button class="mini big" data-pt5="${k}" ${un > 0 ? '' : 'disabled'}>+5</button></div></div>`).join('');
+  const tile = (l, v) => `<div class="stat"><small>${l}</small><b>${v}</b></div>`;
+  const rows = STAT_KEYS.map((k) => { const ok = statApplies(h.cls, k);
+    return `<div class="strow ${ok ? '' : 'off'}"><div class="stname"><b>${STAT_POINT_LABEL[k]}</b><small>${statNote(h.cls, k)}</small></div>
+    <div class="stpts"><small>Points</small><b>${(h.pts && h.pts[k]) || 0}</b></div>
+    <div class="stbtns"><button class="mini big" data-pt="${k}" ${un > 0 && ok ? '' : 'disabled'}>+1</button><button class="mini big" data-pt5="${k}" ${un > 0 && ok ? '' : 'disabled'}>+5</button></div></div>`; }).join('');
   const spent = pointsSpent(h);
   return `<div class="stack">${heroPicker()}${frame(`<h2 class="ftitle">${h.name} <small>Lv ${h.level} ${C.name}</small></h2>
-    <div class="ptbig"><span>Stat points to spend</span><b>${un}</b></div><p class="hint">You earn 3 points every level. Put them wherever you like: tough, strong, or fast. You can reset them for gold.</p>${rows}
+    <div class="ptbig"><span>Stat points to spend</span><b>${un}</b></div><p class="hint">You earn 3 points every level and choose where they go. Some stats only help certain classes.</p>
+    <div class="statrow six">${tile('Health', fmtStat('hp', st.hp))}${tile('Attack', fmtStat('atk', st.atk))}${tile('Defense', fmtStat('def', st.def))}${tile('Crit %', fmtStat('crit', st.crit))}${tile('Mana', st.mana)}${tile('Healing', '+' + Math.round(st.healPct) + '%')}</div>${rows}
     <div class="row"><button class="btn btn-steel" data-resetpts="1" ${spent > 0 && SAVE.gold >= resetCost(h) ? '' : 'disabled'}><span>Reset points · ${resetCost(h)}g</span></button></div>`)}</div>`;
 }
 
@@ -88,19 +91,19 @@ function skillsView() {
 
 // ---------- GEAR ----------
 const BADGE = { heavy: 'H', medium: 'M', light: 'L' };
-const slotBtn = (it, label, sel) => it ? `<button class="slot r${it.rar} ${sel ? 'sel' : ''} ${it.armor && !canWear(hero(), it) ? 'nowear' : ''}" data-item="${it.id}" style="--r:${RARITIES[it.rar].color}"><img src="art/icon_${it.kind}.png" alt="">${it.up ? `<em>+${it.up}</em>` : ''}${it.armor ? `<b class="atype">${BADGE[it.armor]}</b>` : ''}</button>` : `<button class="slot empty-slot"><span>${label}</span></button>`;
+const slotBtn = (it, label, sel) => it ? `<button class="slot r${it.rar} ${sel ? 'sel' : ''} ${!canWear(hero(), it) ? 'nowear' : ''}" data-item="${it.id}" style="--r:${RARITIES[it.rar].color}"><img src="art/icon_${it.kind}.png" alt="">${it.up ? `<em>+${it.up}</em>` : ''}${it.armor ? `<b class="atype">${BADGE[it.armor]}</b>` : ''}</button>` : `<button class="slot empty-slot"><span>${label}</span></button>`;
 function gearView() {
   const h = hero(), st = heroStats(h), C = CLASSES[h.cls];
   const bag = SAVE.bag.slice().sort((a, b) => b.rar - a.rar || b.ilvl - a.ilvl);
   const selId = ui.item;
   const left = ['helm', 'armor', 'boots'].map((s) => slotBtn(h.gear[s], SLOT_INFO[s].label, selId === (h.gear[s] && h.gear[s].id))).join('');
   const right = ['weapon', 'ring', 'amulet'].map((s) => slotBtn(h.gear[s], SLOT_INFO[s].label, selId === (h.gear[s] && h.gear[s].id))).join('');
-  const bagHtml = bag.map((it) => { const better = canWear(h, it) && itemScore(it) > itemScore(h.gear[it.slot]); return slotBtn(it, '', selId === it.id).replace('</button>', better ? '<i class="up">▲</i></button>' : '</button>'); }).join('') || '<p class="empty">Your bag is empty. Gear drops in the crypt.</p>';
+  const bagHtml = bag.map((it) => { const better = canWear(h, it) && itemScoreFor(h.cls, it) > itemScoreFor(h.cls, h.gear[it.slot]); return slotBtn(it, '', selId === it.id).replace('</button>', better ? '<i class="up">▲</i></button>' : '</button>'); }).join('') || '<p class="empty">Your bag is empty. Gear drops in the crypt.</p>';
   const AT = ARMOR_TYPES[C.armor];
   return `<div class="gear-grid2">${frame(`<h2 class="ftitle">${h.name} <small>Lv ${h.level} ${C.name}</small></h2><div class="armornote"><b>${AT.label} armor · ${AT.name}</b> <span>${AT.blurb}</span></div>${setPanel(h)}
       <div class="doll2"><div class="dcol">${left}</div><div class="dhero"><img src="${portrait(h)}" alt=""></div><div class="dcol">${right}</div></div>
       <div class="statrow">${['hp', 'atk', 'def', 'crit', 'haste'].map((k) => `<div class="stat"><small>${STAT_LABEL[k]}</small><b>${fmtStat(k, st[k])}</b></div>`).join('')}</div>`)}
-    ${frame(`<div class="baghead"><h2 class="ftitle">Bag <small>${SAVE.bag.length} / 60</small></h2><button class="btn btn-steel btn-sm" data-salvageweak="1"><span>Salvage weak gear</span></button></div><div class="bag2">${bagHtml}</div>`, 'bagframe')}
+    ${frame(`<div class="baghead"><h2 class="ftitle">Bag <small>${SAVE.bag.length} / 60</small></h2><div class="bagbtns"><button class="btn btn-gold btn-sm" data-autoequip="1"><span>Auto equip ${h.name}</span></button><button class="btn btn-gold btn-sm" data-autoequipall="1"><span>Auto equip party</span></button><button class="btn btn-steel btn-sm" data-salvageweak="1"><span>Salvage weak gear</span></button></div></div><div class="bag2">${bagHtml}</div>`, 'bagframe')}
     <div class="side2">${heroPickerMini()}${frame(itemDetail(h))}</div></div>`;
 }
 function setPanel(h) {
@@ -121,9 +124,9 @@ function itemDetail(h) {
   const rows = [...keys].map((k) => { const v = it.stats[k] ? itemStat(it, k) : 0, cv = cmp && cur.stats[k] ? itemStat(cur, k) : 0, d = v - cv;
     return `<div class="srow"><span>${STAT_LABEL[k]}</span><b>${v ? fmtStat(k, v) : '-'}</b>${cmp && Math.abs(d) >= 0.05 ? `<em class="${d > 0 ? 'pos' : 'neg'}">${d > 0 ? '+' : ''}${fmtStat(k, d)}</em>` : '<em></em>'}</div>`; }).join('');
   const where = f.owner ? (eq ? 'Worn by ' + h.name : 'Worn by ' + f.owner.name) : 'In bag';
-  const wear = canWear(h, it), AT = it.armor && ARMOR_TYPES[it.armor];
+  const wear = canWear(h, it), AT = it.armor && ARMOR_TYPES[it.armor], WP = it.slot === 'weapon' ? CLASSES[h.cls].weapon : null;
   return `<div class="ibig"><img src="art/icon_${it.kind}.png" alt="" style="filter:drop-shadow(0 0 18px ${R.color}) drop-shadow(0 8px 14px #000)"></div>
-    <div class="iname" style="color:${R.color}">${it.name}${it.up ? ' +' + it.up : ''}</div><div class="irar">${R.name} ${AT ? AT.name + ' ' : ''}${SLOT_INFO[it.slot].label} · item level ${it.ilvl} · ${where}</div>${AT ? `<div class="wearnote ${wear ? 'ok' : 'no'}">${AT.label} armor · worn by ${AT.who}${wear ? '' : ' (not ' + h.name + ')'}</div>` : ''}${rows}
+    <div class="iname" style="color:${R.color}">${it.name}${it.up ? ' +' + it.up : ''}</div><div class="irar">${R.name} ${AT ? AT.name + ' ' : ''}${SLOT_INFO[it.slot].label} · item level ${it.ilvl} · ${where}</div>${AT ? `<div class="wearnote ${wear ? 'ok' : 'no'}">${AT.label} armor · worn by ${AT.who}${wear ? '' : ' (not ' + h.name + ')'}</div>` : ''}${WP ? `<div class="wearnote ${wear ? 'ok' : 'no'}">${it.kind} · ${wear ? 'usable by ' + h.name : h.name + ' uses ' + WP + 's'}</div>` : ''}${rows}
     <div class="row">${eq ? `<button class="btn btn-steel grow" data-unequip="${it.id}"><span>Unequip</span></button>` : `<button class="btn btn-gold grow" data-equip="${it.id}" ${wear ? '' : 'disabled'}><span>${wear ? 'Equip on ' + h.name : 'Wrong armor type'}</span></button>`}
       <button class="btn btn-steel grow" data-upgrade="${it.id}" ${SAVE.gold < upCost(it) || (it.up || 0) >= 15 ? 'disabled' : ''}><span>Upgrade +${(it.up || 0) + 1} · ${upCost(it)}g</span></button>
       ${f.owner ? '' : `<button class="btn btn-steel" data-salvage="${it.id}"><span>Salvage ${salvageValue(it)}g</span></button>`}</div>`;
@@ -132,7 +135,7 @@ function itemDetail(h) {
 // ---------- actions ----------
 function takeFrom(f) { if (f.owner) { for (const s of SLOTS) if (f.owner.gear[s] && f.owner.gear[s].id === f.it.id) delete f.owner.gear[s]; } else { const i = SAVE.bag.findIndex((x) => x.id === f.it.id); if (i >= 0) SAVE.bag.splice(i, 1); } }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-salvageweak],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts]');
+  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-salvageweak],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
   if (!t || hub.classList.contains('hidden') || !hub.contains(t)) return;
   const d = t.dataset;
   if (d.tab) { ui.tab = d.tab; ui.item = null; }
@@ -152,8 +155,10 @@ document.addEventListener('click', (e) => {
   else if (d.join) { if (SAVE.party.length < 4) { SAVE.party.push(d.join); save(); } }
   else if (d.bench) { if (SAVE.party.length > 1) { SAVE.party = SAVE.party.filter((x) => x !== d.bench); save(); } }
   else if (d.lead) { SAVE.party = [d.lead, ...SAVE.party.filter((x) => x !== d.lead)]; save(); }
-  else if (d.pt || d.pt5) { const h = hero(), k = d.pt || d.pt5, n = Math.min(d.pt ? 1 : 5, pointsUnspent(h)); if (n > 0) { h.pts[k] = (h.pts[k] || 0) + n; save(); } }
-  else if (d.resetpts) { const h = hero(); if (SAVE.gold >= resetCost(h) && pointsSpent(h) > 0) { SAVE.gold -= resetCost(h); h.pts = { hp: 0, atk: 0, def: 0, crit: 0, haste: 0 }; save(); } }
+  else if (d.pt || d.pt5) { const h = hero(), k = d.pt || d.pt5, n = Math.min(d.pt ? 1 : 5, pointsUnspent(h)); if (n > 0 && statApplies(h.cls, k)) { h.pts[k] = (h.pts[k] || 0) + n; save(); } }
+  else if (d.resetpts) { const h = hero(); if (SAVE.gold >= resetCost(h) && pointsSpent(h) > 0) { SAVE.gold -= resetCost(h); h.pts = EMPTY_PTS(); save(); } }
+  else if (d.autoequip) { const n = autoEquip(SAVE, hero()); save(); ui.msg = n ? `Equipped ${n} better item${n === 1 ? '' : 's'} on ${hero().name}.` : `${hero().name} already has the best gear from your bag.`; }
+  else if (d.autoequipall) { let n = 0; for (const x of partyHeroes(SAVE)) n += autoEquip(SAVE, x); save(); ui.msg = n ? `Equipped ${n} better item${n === 1 ? '' : 's'} across the party.` : 'Your party already has the best gear from your bag.'; }
   else if (d.claim) { const r = claimIdle(SAVE); save(); ui.msg = `Collected ${r.gold.toLocaleString()} gold and ${r.items.length} gear piece${r.items.length === 1 ? '' : 's'}.`; }
   else if (d.run !== undefined) { SAVE.lastSeen = Date.now(); save(); window.HOL.startRun(+d.run); return; }
   render();

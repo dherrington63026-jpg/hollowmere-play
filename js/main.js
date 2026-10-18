@@ -9,7 +9,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, XP_NEED, heroStats, heroEffects, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp } from './data.js';
+import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp } from './data.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -270,20 +270,44 @@ const REAL_ALIAS = {
   Idle: 'idle', '2H_Melee_Idle': 'idle', Idle_Combat: 'idle', Running_A: 'run', Walking_A: 'walk', Walking_Backwards: 'walk', Cheer: 'cheer', Hit_A: 'hit', Death_A: 'death', Death_B: 'death',
   '1H_Melee_Attack_Slice_Diagonal': 'attack1', '1H_Melee_Attack_Slice_Horizontal': 'attack2', '1H_Melee_Attack_Chop': 'attack3',
   Block_Attack: 'attack1', Block: 'idle', '2H_Melee_Attack_Spin': 'attack3', '2H_Melee_Attack_Spinning': 'attack3', '2H_Melee_Attack_Stab': 'attack2', Dodge_Forward: 'run', Throw: 'attack2',
-  Spellcast_Long: 'attack1', Spellcast_Raise: 'cheer', Spellcast_Shoot: 'attack2', '2H_Melee_Attack_Chop': 'attack3', '2H_Melee_Attack_Slice': 'attack1', Taunt: 'cheer',
+  Spellcast_Long: 'attack2', Spellcast_Raise: 'attack3', Spellcast_Shoot: 'attack1', Spellcast_Summon: 'attack3', '2H_Ranged_Shoot': 'attack1', '2H_Ranged_Aiming': 'attack2',
+  Dualwield_Melee_Attack_Slice: 'attack1', Dualwield_Melee_Attack_Stab: 'attack2', Dualwield_Melee_Attack_Chop: 'attack3',
+  '2H_Melee_Attack_Chop': 'attack1', '2H_Melee_Attack_Slice': 'attack2', Taunt: 'cheer',
 };
-async function loadReal(key) {
-  const dir = `models3d/${key}`, L = new FBXLoader();
-  const base = await L.loadAsync(`${dir}/idle.fbx`);
-  const clips = [];
-  for (const nm of ['idle', 'run', 'walk', 'attack1', 'attack2', 'attack3', 'hit', 'death', 'cheer']) {
-    const src = nm === 'idle' ? base : await L.loadAsync(`${dir}/${nm}.fbx`);
-    const c = src.animations[0].clone(); c.name = nm;
+// weapons attached to the hero's hand bones (taken from the stand-in pack); rot/pos/scale tuned by eye
+const REAL_CFG = {
+  knight_female: { weapons: [{ src: 'Knight', name: '1H_Sword', bone: 'mixamorigRightHand', rot: [-1.25, 0, 0.15], pos: [0, 0.05, 0.02], sc: 0.62 }, { src: 'Knight', name: 'Badge_Shield', bone: 'mixamorigLeftForeArm', rot: [0, Math.PI / 2, 0], pos: [0, 0.12, 0.08], sc: 0.7 }] },
+  // "world" = how the weapon should point in the world at rest (x tilts forward, z tilts sideways); the code works out the hand rotation
+  mage_female: { weapons: [{ src: 'Mage', name: '2H_Staff', bone: 'mixamorigRightHand', world: [0.12, 0, -0.08], pos: [0, 0, 0], sc: 0.9 }] },
+  healer_female: { weapons: [{ src: 'Mage', name: '1H_Wand', bone: 'mixamorigRightHand', world: [0.5, 0, -0.1], pos: [0, 0, 0], sc: 1.0 }, { src: 'Mage', name: 'Spellbook', bone: 'mixamorigLeftHand', world: [0.9, 0, 0], pos: [0, 0.04, 0.04], sc: 0.9 }] },
+  ranger_male: { weapons: [{ src: 'Rogue_Hooded', name: '2H_Crossbow', bone: 'mixamorigRightHand', world: [1.45, 0, 0], pos: [0, 0.05, 0], sc: 0.85 }] },
+  warrior_male: { weapons: [{ src: 'Barbarian', name: '2H_Axe', bone: 'mixamorigRightHand', world: [0.2, 0, -0.15], pos: [0, 0, 0], sc: 0.9 }] },
+  rogue_female: { weapons: [{ src: 'Rogue_Hooded', name: 'Knife', bone: 'mixamorigRightHand', world: [1.5, 0, 0.2], pos: [0, 0.03, 0], sc: 1.0 }, { src: 'Rogue_Hooded', name: 'Knife_Offhand', bone: 'mixamorigLeftHand', world: [1.5, 0, -0.2], pos: [0, 0.03, 0], sc: 1.0 }] },
+};
+// Mixamo animations work on every Mixamo-rigged hero (same bone names), so they live in models3d/shared and each hero only needs its own body file.
+const REAL_COMMON = { run: 'run', walk: 'walk', hit: 'hit', death: 'death', cheer: 'cheer' };
+const REAL_ATTACKS = {
+  knight_female: ['sword1', 'sword2', 'sword3'], mage_female: ['cast_2h', 'cast_1h', 'cast_area'], healer_female: ['cast_1h', 'cast_2h', 'cast_area'],
+  ranger_male: ['bow_overdraw', 'bow_draw', 'bow_overdraw'], warrior_male: ['melee_h', 'melee_d', 'melee_360'], rogue_female: ['melee_d', 'melee_h', 'melee_360'],
+};
+const SHARED_CLIPS = {}; // file -> clip (loaded once)
+async function sharedClip(file, L) {
+  if (!SHARED_CLIPS[file]) {
+    const src = await L.loadAsync(`models3d/shared/${file}.fbx`), c = src.animations[0].clone();
     // keep the character in place: remove sideways/forward drift from the hips (stay with the vertical bob)
     for (const t of c.tracks) if (/Hips\.position$/.test(t.name)) { const v = t.values, x0 = v[0], z0 = v[2]; for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; } }
-    clips.push(c);
+    SHARED_CLIPS[file] = c;
   }
-  const tx = await new THREE.TextureLoader().loadAsync(`${dir}/knight.png`); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8;
+  return SHARED_CLIPS[file];
+}
+async function loadReal(key) {
+  const dir = `models3d/${key}`, L = new FBXLoader();
+  const base = await L.loadAsync(`${dir}/idle.fbx`), clips = [];
+  const idle = base.animations[0].clone(); idle.name = 'idle'; for (const t of idle.tracks) if (/Hips\.position$/.test(t.name)) { const v = t.values, x0 = v[0], z0 = v[2]; for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; } }
+  clips.push(idle);
+  const want = { ...REAL_COMMON }; (REAL_ATTACKS[key] || REAL_ATTACKS.knight_female).forEach((f, i) => { want['attack' + (i + 1)] = f; });
+  for (const [name, file] of Object.entries(want)) { try { const c = (await sharedClip(file, L)).clone(); c.name = name; clips.push(c); } catch (e) { console.warn('clip missing', file); } }
+  const tx = await new THREE.TextureLoader().loadAsync(`${dir}/tex.png`); tx.colorSpace = THREE.SRGBColorSpace; tx.anisotropy = 8;
   REAL[key] = { scene: base, clips, tx };
 }
 function makeRealModel(key) {
@@ -297,21 +321,22 @@ function makeRealModel(key) {
   // same height as the stand-in knight so the camera and hit boxes still fit
   const hb = new THREE.Box3().setFromObject(GL.Knight.scene); const want = (hb.max.y - hb.min.y) * 1.08;
   const bb = new THREE.Box3().setFromObject(root), k = want / (bb.max.y - bb.min.y); root.scale.multiplyScalar(k);
-  // sword and shield from the stand-in pack, attached to the hands
-  const rh = root.getObjectByName('mixamorigRightHand'), lf = root.getObjectByName('mixamorigLeftForeArm');
-  const grab = (name) => { let o = null; GL.Knight.scene.traverse((m) => { if (m.name === name) o = m; }); return o && o.clone(true); };
-  const sword = grab('1H_Sword'), shield = grab('Badge_Shield');
   root.updateMatrixWorld(true);
-  const place = (bone, obj, rot, pos, sc) => {
-    if (!bone || !obj) return null;
-    const ws = new THREE.Vector3(); bone.getWorldScale(ws);
-    obj.visible = true; obj.rotation.set(...rot); obj.scale.setScalar(sc / ws.x); obj.position.set(pos[0] / ws.x, pos[1] / ws.x, pos[2] / ws.x); bone.add(obj);
+  const held = [];
+  for (const w of (REAL_CFG[key] ? REAL_CFG[key].weapons : [])) {
+    const bone = root.getObjectByName(w.bone); let obj = null;
+    if (GL[w.src]) GL[w.src].scene.traverse((m) => { if (m.name === w.name) obj = m; });
+    if (!bone || !obj) continue;
+    obj = obj.clone(true); const ws = new THREE.Vector3(); bone.getWorldScale(ws);
+    obj.visible = true; obj.scale.setScalar(w.sc / ws.x); obj.position.set(w.pos[0] / ws.x, w.pos[1] / ws.x, w.pos[2] / ws.x);
+    if (w.world) { bone.updateWorldMatrix(true, false); const qb = bone.getWorldQuaternion(new THREE.Quaternion()), qw = new THREE.Quaternion().setFromEuler(new THREE.Euler(...w.world)); obj.quaternion.copy(qb.invert().multiply(qw)); }
+    else obj.rotation.set(...w.rot);
+    bone.add(obj);
     obj.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.material = m.material.clone(); mats.push(m.material); m.visible = true; } });
-    return obj;
-  };
-  const sw = place(rh, sword, [-1.25, 0, 0.15], [0, 0.05, 0.02], 0.62), sh = place(lf, shield, [0, Math.PI / 2, 0], [0, 0.12, 0.08], 0.7); // values tuned by eye in the game view
+    held.push(obj);
+  }
   const g = new THREE.Group(); g.add(root);
-  return { g, root, mats, anim: new Anim(root, R.clips, REAL_ALIAS), sword: sw, shield: sh };
+  return { g, root, mats, anim: new Anim(root, R.clips, REAL_ALIAS), held, sword: held[0], shield: held[1] };
 }
 function attachWeapon(model, wname) {
   let slot = null; model.root.traverse((o) => { if (o.name === 'handslot.r') slot = o; });
@@ -342,12 +367,14 @@ function makeUnit(hs, i) {
   m.g.position.copy(W2(3, 3)).add(new THREE.Vector3(off[0], 0, off[1])); scene.add(m.g);
   m.anim.play('Idle');
   return Object.assign(m, { hs, C, name: hs.name, hp: st.hp, maxHp: st.hp, atk: st.atk, def: st.def, crit: st.crit, haste: st.haste, level: hs.level, xp: hs.xp,
-    skills: hs.skills.slice(), cds: [0, 0, 0, 0], state: 'idle', stateT: 0, combo: 0, dodgeCd: 0, iframes: 0, buffs: {}, target: null, path: null, flashT: 0, hitDone: false,
+    skills: hs.skills.slice(), mana: st.mana, maxMana: st.mana, manaRegen: st.manaRegen, cds: [0, 0, 0, 0], state: 'idle', stateT: 0, combo: 0, dodgeCd: 0, iframes: 0, buffs: {}, target: null, path: null, flashT: 0, hitDone: false,
     isHero: true, radius: 0.6, slot: i, hot: null, ...heroEffects(hs) });
+}
+function fixHeal(u, st) { u.healPct = heroEffects(u.hs).healPct + st.healPct / 100;
 }
 function newGame(tier) {
   TIER = tier;
-  const units = partyHeroes(SAVE).slice(0, 4).map((hs, i) => makeUnit(hs, i));
+  const units = partyHeroes(SAVE).slice(0, 4).map((hs, i) => { const u = makeUnit(hs, i); fixHeal(u, heroStats(hs)); return u; });
   G = { party: units, hero: units[0], enemies: [], fx: [], loot: [], drops: [], gold: 0, auto: false, shake: 0, hitstop: 0, over: false, boss: null, bossSpawnedAdds: false, t: 0, kills: 0, potions: 3, potionCd: 0, tier, zoom: 1 };
   spawnRooms();
   buildPartyBar(); setLead(units[0], true);
@@ -361,7 +388,7 @@ function setLead(u, first) {
   document.querySelectorAll('#pad [data-i]').forEach((b) => {
     const id = u.skills[+b.dataset.i], S = id && SKILLS[id];
     b.style.setProperty('--c', u.C.color); b.classList.toggle('empty', !S);
-    b.querySelector('img').src = S ? `art/skill_${S.icon}.jpg` : 'art/skill_dodge.jpg'; b.title = S ? `${S.name}: ${S.desc}` : 'Empty slot';
+    b.querySelector('img').src = S ? `art/skill_${S.icon}.jpg` : 'art/skill_dodge.jpg'; b.title = S ? `${S.name} (${skillCost(id)} mana): ${S.desc}` : 'Empty slot';
     b.querySelector('.lock').textContent = S ? 'Lv ' + S.lv : '';
   });
   document.querySelectorAll('.pcard').forEach((c) => c.classList.toggle('lead', +c.dataset.i === u.slot));
@@ -582,7 +609,7 @@ function killEnemy(e) {
 function levelUp(u) {
   u.xp -= XP_NEED(u.level); u.level++; u.hs.level = u.level; u.hs.xp = u.xp;
   const ratio = u.hp / u.maxHp, st = heroStats(u.hs);
-  Object.assign(u, { maxHp: st.hp, atk: st.atk, def: st.def, crit: st.crit, haste: st.haste });
+  Object.assign(u, { maxHp: st.hp, atk: st.atk, def: st.def, crit: st.crit, haste: st.haste, maxMana: st.mana, manaRegen: st.manaRegen }); u.mana = Math.min(u.maxMana, u.mana + 6); fixHeal(u, st);
   u.hp = Math.max(u.hp, Math.round(st.hp * Math.max(ratio, 0.6)));
   floatText(u.g.position, 'LEVEL UP!', 'crit', 3.4); ring(u.g.position, 0xffd84a, 3.5); sfx('level');
   if (!G.lvlToast || G.t - G.lvlToast > 3) { G.lvlToast = G.t; toast('Level up! You have <b>stat points</b> to spend in Camp → Stats', '#c9b0ff'); }
@@ -617,6 +644,9 @@ function castSkill(h, i) {
   if (!G || G.over || !S || h.state === 'dead' || h.state === 'dodge' || h.state === 'skill' || h.cds[i] > 0 || h.level < S.lv) return false;
   const tgt = h.target && !h.target.dead ? h.target : (h.aiTarget && !h.aiTarget.dead ? h.aiTarget : nearestEnemy(h, h.C.ranged ? 16 : 9));
   if (!tgt && !NO_TARGET_SKILLS.has(id)) return false;
+  const cost = skillCost(id);
+  if (h.mana < cost) { if (h === G.hero && (!G.manaToast || G.t - G.manaToast > 1.5)) { G.manaToast = G.t; floatText(h.g.position, 'No mana', 'info', 3.0); } return false; }
+  h.mana -= cost;
   h.cds[i] = S.cd * (1 - (h.cdr || 0));
   withAct(h, () => doSkill(h, id, tgt));
   return true;
@@ -703,6 +733,7 @@ function updateUnit(h, dt) {
   h.anim.update(dt);
   for (const k in h.buffs) h.buffs[k] = Math.max(0, h.buffs[k] - dt);
   h.cds = h.cds.map((c) => Math.max(0, c - dt)); h.dodgeCd = Math.max(0, h.dodgeCd - dt); h.iframes = Math.max(0, h.iframes - dt);
+  if (h.state !== 'dead') h.mana = Math.min(h.maxMana, h.mana + h.manaRegen * dt);
   if (h.hot) { h.hot.left -= dt; h.hot.tick += dt; if (h.hot.tick >= 1) { h.hot.tick -= 1; healUnit(h, h.hot.per, true); } if (h.hot.left <= 0) h.hot = null; }
   if (h.flashT > 0) { h.flashT -= dt; if (h.flashT <= 0) unflash(h); }
   if (h.state === 'dead') return;
@@ -930,7 +961,11 @@ function dropGold(pos, amount) {
   G.drops.push({ kind: 'gold', o, amount, t: 0 });
 }
 function dropItem(pos, minRar) {
-  const it = makeItem(SAVE, Math.max(TIERS[TIER].lvl, avgPartyLevel(SAVE)), TIER, minRar), R = RARITIES[it.rar], rar = it.rar;
+  // most drops are things somebody in the party can actually use
+  const ph = partyHeroes(SAVE), usable = Math.random() < 0.8 && ph.length;
+  const pick1 = (a) => a[Math.floor(Math.random() * a.length)], slot = pick1(['weapon', 'helm', 'armor', 'boots', 'ring', 'amulet']);
+  const who = usable ? pick1(ph) : null;
+  const it = makeItem(SAVE, Math.max(TIERS[TIER].lvl, avgPartyLevel(SAVE)), TIER, minRar, slot, who && slot === 'weapon' ? CLASSES[who.cls].weapon : null, who && ['helm', 'armor', 'boots'].includes(slot) ? CLASSES[who.cls].armor : null), R = RARITIES[it.rar], rar = it.rar;
   const g = new THREE.Group(); g.position.copy(pos);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.35, rar >= 2 ? 7 : 3.5, 12, 1, true), glowMat(R.color, 0.55)); beam.position.y = rar >= 2 ? 3.5 : 1.75;
   const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshStandardMaterial({ color: R.color, emissive: R.color, emissiveIntensity: 1.4, roughness: 0.3 })); gem.position.y = 0.6;
@@ -987,7 +1022,7 @@ function updateLabels(dt) {
 function updateHud() {
   const h = G.hero, p = Math.max(0, h.hp / h.maxHp * 100) + '%';
   $('#bHp').style.width = p; $('#bHpTrail').style.width = p; $('#bHpText').textContent = `${Math.ceil(h.hp)} / ${h.maxHp}`;
-  $('#bLevel').textContent = h.level; $('#bXp').style.width = Math.min(100, h.xp / XP_NEED(h.level) * 100) + '%';
+  $('#bLevel').textContent = h.level; $('#bXp').style.width = Math.min(100, h.xp / XP_NEED(h.level) * 100) + '%'; $('#bMp').style.width = Math.max(0, h.mana / h.maxMana * 100) + '%';
   $('#bGold').textContent = G.gold; $('#bLoot').textContent = G.loot.length;
   document.querySelectorAll('.pcard').forEach((c) => {
     const u = G.party[+c.dataset.i]; c.classList.toggle('dead', u.state === 'dead');
@@ -996,7 +1031,7 @@ function updateHud() {
   document.querySelectorAll('#pad [data-i]').forEach((b) => {
     const i = +b.dataset.i, id = h.skills[i], S = id && SKILLS[id]; if (!S) { b.classList.add('locked'); return; }
     const locked = h.level < S.lv;
-    b.classList.toggle('locked', locked); b.classList.toggle('ready', !locked && h.cds[i] <= 0);
+    b.classList.toggle('locked', locked); b.classList.toggle('nomana', !locked && h.mana < skillCost(id)); b.classList.toggle('ready', !locked && h.cds[i] <= 0 && h.mana >= skillCost(id));
     b.style.setProperty('--p', (h.cds[i] / S.cd * 100) + '%'); b.querySelector('.cdn').textContent = !locked && h.cds[i] > 0 ? Math.ceil(h.cds[i]) : '';
   });
   const dc = $('#btnDodge'); dc.style.setProperty('--p', (h.dodgeCd / 2.6 * 100) + '%'); dc.querySelector('.cdn').textContent = h.dodgeCd > 0 ? Math.ceil(h.dodgeCd) : '';
@@ -1169,7 +1204,7 @@ requestAnimationFrame(frame);
 (async () => {
   await loadAll(['Knight', 'Mage', 'Rogue_Hooded', 'Barbarian', 'Skeleton_Minion', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Rogue',
     ...['Skeleton_Blade', 'Skeleton_Axe', 'Skeleton_Staff'].map((n) => `assets/skelweap/${n}.gltf`), ...PROPS.map(D), ...PH_MODELS.map(PH)]);
-  await loadReal('knight_female');
+  for (const c of Object.values(CLASSES)) if (c.real && !REAL[c.real]) { try { await loadReal(c.real); } catch (e) { console.warn('real model missing', c.real, e); c.real = null; } }
   buildCrypt();
   warmup();
   window.HOL.ready = true; window.dispatchEvent(new Event('hol-ready'));
