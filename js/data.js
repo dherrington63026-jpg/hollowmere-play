@@ -1,4 +1,4 @@
-import { newStory } from './story.js';
+import { newStory, fixStory } from './story.js';
 // Chronicles of Hollowmere (working title) - shared game data: classes, skills, gear, save, idle rewards.
 // Design: GAME4-DESIGN.md. 6 classes, 4 skill slots per hero (slots 1-2 own class, 3-4 any), 6 gear colours.
 
@@ -262,7 +262,7 @@ export function loadSave() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (!s || s.v !== 1) return null;
-    s.bag.forEach(fixItem);
+    s.bag.forEach(fixItem); if (s.story) fixStory(s.story, s.party[0]);
     for (const hs of s.heroes) if (!hs.pts || 'atk' in hs.pts || !('str' in hs.pts)) hs.pts = EMPTY_PTS(); // old point layout: refund
     for (const hs of s.heroes) for (const slot of SLOTS) { const it = hs.gear[slot]; if (!it) continue; fixItem(it); if (!canWear(hs, it)) { delete hs.gear[slot]; s.bag.push(it); } }
     return s;

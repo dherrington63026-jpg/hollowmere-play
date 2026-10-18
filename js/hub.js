@@ -54,7 +54,7 @@ function campView() {
   const full = idle.mins >= IDLE_CAP_MIN;
   return `<div class="camp-grid">
     ${frame(`<h2 class="ftitle">Your party <small>average level ${lvl}</small></h2><div class="pcs">${cards}</div>
-      <div class="row"><button class="btn btn-steel" data-tab="party"><span>Change party</span></button><button class="btn btn-steel" data-tab="skills"><span>Skills</span></button><button class="btn btn-steel" data-tab="gear"><span>Gear</span></button></div>`, 'camp-party')}
+      <div class="row">${SAVE.story ? '<button class="btn btn-gold" data-village="1"><span>Visit Frostmoor</span></button>' : ''}<button class="btn btn-steel" data-tab="party"><span>Change party</span></button><button class="btn btn-steel" data-tab="skills"><span>Skills</span></button><button class="btn btn-steel" data-tab="gear"><span>Gear</span></button></div>`, 'camp-party')}
     <div class="camp-right">
       ${frame(`<h2 class="ftitle">Idle rewards</h2><p>Your party keeps hunting while you are away (up to 12 hours).</p>
         <div class="idle-row"><div class="rstat"><small>Away</small><b>${fmtTime(idle.mins)}</b></div><div class="rstat"><small>Gold</small><b>${idle.gold.toLocaleString()}</b></div><div class="rstat"><small>Gear</small><b>${idle.gear}</b></div></div>
@@ -137,7 +137,7 @@ function itemDetail(h) {
 // ---------- actions ----------
 function takeFrom(f) { if (f.owner) { for (const s of SLOTS) if (f.owner.gear[s] && f.owner.gear[s].id === f.it.id) delete f.owner.gear[s]; } else { const i = SAVE.bag.findIndex((x) => x.id === f.it.id); if (i >= 0) SAVE.bag.splice(i, 1); } }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-sellrar],[data-back],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
+  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-sellrar],[data-back],[data-village],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
   if (!t || hub.classList.contains('hidden') || !hub.contains(t)) return;
   const d = t.dataset;
   if (d.tab) { ui.tab = d.tab; ui.item = null; }
@@ -153,6 +153,7 @@ document.addEventListener('click', (e) => {
   else if (d.unequip) { const f = findItem(+d.unequip); if (f && SAVE.bag.length < 60) { takeFrom(f); SAVE.bag.push(f.it); ui.item = f.it.id; save(); } }
   else if (d.upgrade) { const f = findItem(+d.upgrade); if (f && SAVE.gold >= upCost(f.it) && (f.it.up || 0) < 15) { SAVE.gold -= upCost(f.it); f.it.up = (f.it.up || 0) + 1; save(); } }
   else if (d.salvage) { const i = SAVE.bag.findIndex((x) => x.id === +d.salvage); if (i >= 0) { SAVE.gold += salvageValue(SAVE.bag[i]); SAVE.bag.splice(i, 1); ui.item = null; save(); } }
+  else if (d.village) { hub.classList.add('hidden'); window.HOL.startStory('town'); return; }
   else if (d.back) { ui.inGame = false; hub.classList.add('hidden'); window.HOL.closeMenu(); return; }
   else if (d.sellrar != null) {
     const r = +d.sellrar; let g = 0, n = 0, kept = 0;

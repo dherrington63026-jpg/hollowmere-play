@@ -36,6 +36,6 @@ export function townMap() {
     id: 'town', name: 'Frostmoor', grid: g, start: [14, 22],
     buildings: B.map(([x0, y0, x1, y1, kind]) => ({ x0, y0, x1, y1, kind })),
     stall: [18, 12, 22, 13], well: [9, 12, 10, 13], exit: [8, 2, 10, 5],
-    npcs: { vendor: [20, 11.5], healer: [12.5, 11] },
+    npcs: { vendor: [20, 11.5] }, slots: [[12.5, 11], [22, 17], [6.5, 18.5], [16, 18.5], [9, 8]],
   };
 }

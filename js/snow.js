@@ -1,5 +1,6 @@
 // Builds the snowy outdoor worlds (trail + village) and the falling snow.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 // small deterministic random so the same map always looks the same
@@ -29,50 +30,69 @@ const woodTex = () => canvasTex(256, 256, (x, w, h) => {
   for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(30,14,4,${0.05 + r() * 0.12})`; x.fillRect(r() * w, r() * h, 1 + r() * 2, 8 + r() * 30); }
 }, [1, 1]);
 
-export function buildSnowWorld(spec, TILE) {
+export function buildSnowWorld(spec, TILE, treeAssets) {
   const GW = spec.grid[0].length, GH = spec.grid.length, grid = spec.grid;
   const world = new THREE.Group(), R = seeded(spec.id === 'trail' ? 21 : 5);
   const wx = (cx) => cx * TILE, wz = (cy) => cy * TILE;
   // ground
-  const gm = new THREE.MeshStandardMaterial({ map: snowTex([(GW * TILE + 160) / 24, (GH * TILE + 160) / 24]), roughness: 0.95, metalness: 0, envMapIntensity: 0.3 });
+  const loadSnow = (rep) => { const t = new THREE.TextureLoader().load('assets/snow/ground.jpg'); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(...rep); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+  const gm = new THREE.MeshStandardMaterial({ map: loadSnow([(GW * TILE + 160) / 22, (GH * TILE + 160) / 22]), roughness: 0.92, metalness: 0, envMapIntensity: 0.3, color: 0xe9eef5 });
   const ground = new THREE.Mesh(new THREE.PlaneGeometry(GW * TILE + 160, GH * TILE + 160), gm); ground.rotation.x = -Math.PI / 2; ground.position.set(GW * TILE / 2, -0.02, GH * TILE / 2); ground.receiveShadow = true; world.add(ground);
   // trodden path / plaza
   const floor = []; for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) if (grid[y][x] === 1) floor.push([x, y]);
-  const pm = new THREE.MeshStandardMaterial({ map: packedTex(), transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+  const fade = canvasTex(128, 128, (x, w, h) => { const g = x.createRadialGradient(w / 2, h / 2, 4, w / 2, h / 2, w / 2); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.5, 'rgba(255,255,255,0.8)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.fillRect(0, 0, w, h); }, null, false);
+  const pm = new THREE.MeshStandardMaterial({ map: loadSnow([2, 2]), color: 0xa39a90, alphaMap: fade, transparent: true, depthWrite: false, roughness: 1, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   const pg = new THREE.PlaneGeometry(TILE * 2.1, TILE * 2.1); pg.rotateX(-Math.PI / 2);
   const pim = new THREE.InstancedMesh(pg, pm, floor.length); pim.receiveShadow = true;
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
   floor.forEach(([x, y], i) => { q.setFromAxisAngle(up, R() * 6.28); m4.compose(new THREE.Vector3(wx(x), 0.03, wz(y)), q, new THREE.Vector3(1, 1, 1)); pim.setMatrixAt(i, m4); }); world.add(pim);
 
-  // forest: every solid cell near the walkable area gets one or two spruce trees
+  // forest: solid cells near the walkable area get trees. Close to the path they are real 3D spruces (if the models exist), further out cheap procedural ones.
   const near = (x, y, d) => { for (let j = -d; j <= d; j++) for (let i = -d; i <= d; i++) if (grid[y + j] && grid[y + j][x + i] === 1) return true; return false; };
-  const trees = [];
+  const trees = []; // [x, z, scale, isNearPath]
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
     if (grid[y][x] !== 0) continue;
     if (spec.id === 'town' && x > 1 && x < GW - 2 && y > 1 && y < GH - 2) continue;
-    if (!near(x, y, 4)) { if (R() > 0.18) continue; }
+    const n2 = near(x, y, 2);
+    if (!n2 && !near(x, y, 4)) { if (R() > 0.18) continue; }
     const n = near(x, y, 1) ? 1 : (R() < 0.7 ? 2 : 1);
-    for (let k = 0; k < n; k++) trees.push([wx(x) + (R() - 0.5) * TILE * 0.9, wz(y) + (R() - 0.5) * TILE * 0.9, 1.0 + R() * 0.8]);
+    for (let k = 0; k < n; k++) trees.push([wx(x) + (R() - 0.5) * TILE * 0.9, wz(y) + (R() - 0.5) * TILE * 0.9, 1.0 + R() * 0.8, n2]);
   }
   if (spec.id === 'town') { // a ring of trees around the village
-    for (let x = -3; x < GW + 3; x++) for (const y of [-2, -1, GH, GH + 1, GH + 2]) trees.push([wx(x) + (R() - 0.5) * 3, wz(y) + (R() - 0.5) * 3, 1.1 + R() * 0.7]);
-    for (let y = -2; y < GH + 2; y++) for (const x of [-2, -1, 0, GW, GW + 1]) if (!(y < 5 && x === 0)) trees.push([wx(x) + (R() - 0.5) * 3, wz(y) + (R() - 0.5) * 3, 1.1 + R() * 0.7]);
+    for (let x = -3; x < GW + 3; x++) for (const y of [-2, -1, GH, GH + 1, GH + 2]) trees.push([wx(x) + (R() - 0.5) * 3, wz(y) + (R() - 0.5) * 3, 1.1 + R() * 0.7, y === -1 || y === GH]);
+    for (let y = -2; y < GH + 2; y++) for (const x of [-2, -1, 0, GW, GW + 1]) if (!(y < 5 && x === 0)) trees.push([wx(x) + (R() - 0.5) * 3, wz(y) + (R() - 0.5) * 3, 1.1 + R() * 0.7, x === 0 || x === GW]);
   }
-  const mkI = (geo, mat, cast) => { const im = new THREE.InstancedMesh(geo, mat, trees.length); im.castShadow = cast; im.receiveShadow = false; return im; };
-  const trunkG = new THREE.CylinderGeometry(0.16, 0.26, 1.4, 6); trunkG.translate(0, 0.7, 0);
-  // spruce: 6 drooping tiers with ragged edges (cone rim pushed in and out like branch tips)
-  const tier = (r, h, y, seed) => { const c = new THREE.ConeGeometry(r, h, 16, 1, true), p = c.attributes.position, rr = seeded(seed);
+  // procedural spruce as ONE geometry (trunk + 6 ragged tiers + snow caps, vertex coloured)
+  const paint = (g, r, gg, b) => { const n = g.attributes.position.count, c = new Float32Array(n * 3); for (let i = 0; i < n; i++) { c[i * 3] = r; c[i * 3 + 1] = gg; c[i * 3 + 2] = b; } g.setAttribute('color', new THREE.BufferAttribute(c, 3)); g.deleteAttribute('uv'); return g; };
+  const tier = (r, h, y, seed) => { const c = new THREE.ConeGeometry(r, h, 14, 1, true), p = c.attributes.position, rr = seeded(seed);
     for (let i = 0; i < p.count; i++) { if (p.getY(i) < 0) { const k = 0.78 + rr() * 0.5, a = Math.atan2(p.getZ(i), p.getX(i)); p.setX(i, Math.cos(a) * r * k); p.setZ(i, Math.sin(a) * r * k); p.setY(i, p.getY(i) - rr() * 0.18); } }
     c.translate(0, y + h / 2, 0); c.computeVertexNormals(); return c; };
   const TIERS = [[1.55, 1.5, 1.0], [1.3, 1.45, 1.8], [1.08, 1.4, 2.6], [0.86, 1.3, 3.4], [0.62, 1.2, 4.2], [0.36, 1.1, 5.0]];
-  const cones = TIERS.map(([r, h, y], i) => tier(r, h, y, 100 + i));
-  const caps = TIERS.map(([r, h, y], i) => { const c = tier(r * 0.72, h * 0.55, y + h * 0.5, 200 + i); return c; });
-  const mTrunk = new THREE.MeshStandardMaterial({ color: 0x4a3828, roughness: 1 }), mLeaf = new THREE.MeshStandardMaterial({ color: 0x24402f, roughness: 1, side: THREE.DoubleSide }), mCap = new THREE.MeshStandardMaterial({ color: 0xe8f0f8, roughness: 1, side: THREE.DoubleSide });
-  const parts = [mkI(trunkG, mTrunk, true), ...cones.map((c) => mkI(c, mLeaf, true)), ...caps.map((c) => mkI(c, mCap, false))];
-  const NC = cones.length;
+  const trunkG = new THREE.CylinderGeometry(0.16, 0.26, 1.4, 6); trunkG.translate(0, 0.7, 0);
+  const procG = mergeGeometries([paint(trunkG, 0.07, 0.045, 0.03), ...TIERS.map(([r, h, y], i) => paint(tier(r, h, y, 100 + i), 0.035, 0.085, 0.055)), ...TIERS.map(([r, h, y], i) => paint(tier(r * 0.72, h * 0.55, y + h * 0.5, 200 + i), 0.78, 0.84, 0.9))]);
+  const procM = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide });
+  const mCap = new THREE.MeshStandardMaterial({ color: 0xe8f0f8, roughness: 1, side: THREE.DoubleSide });
+  // real tree models (made with TRELLIS), normalised to height 1 standing on the ground
+  const variants = (treeAssets || []).map((t) => { const g = t.geometry.clone(); g.computeVertexNormals(); g.computeBoundingBox(); const b = g.boundingBox, h = b.max.y - b.min.y;
+    g.translate(-(b.max.x + b.min.x) / 2, -b.min.y, -(b.max.z + b.min.z) / 2); g.scale(1 / h, 1 / h, 1 / h);
+    return { g, m: new THREE.MeshStandardMaterial({ map: t.map, roughness: 1, metalness: 0, side: THREE.DoubleSide, envMapIntensity: 0.4 }) }; });
+  // group trees into square chunks so whole chunks outside the camera view are skipped
+  const CH = TILE * 6, chunks = new Map();
+  for (const [x, z, sc, isNear] of trees) {
+    const v = isNear && variants.length ? Math.floor(R() * variants.length) : -1, key = Math.floor(x / CH) + ',' + Math.floor(z / CH) + ',' + v;
+    if (!chunks.has(key)) chunks.set(key, { v, list: [] }); chunks.get(key).list.push([x, z, sc]);
+  }
   const col = new THREE.Color();
-  trees.forEach(([x, z, s], i) => { q.setFromAxisAngle(up, R() * 6.28); m4.compose(new THREE.Vector3(x, 0, z), q, new THREE.Vector3(s * 0.8, s * (0.9 + R() * 0.3), s * 0.8)); const v = 0.65 + R() * 0.55; col.setRGB(v, v * (0.95 + R() * 0.1), v); parts.forEach((p, k) => { p.setMatrixAt(i, m4); if (k >= 1 && k <= NC) p.setColorAt(i, col); }); });
-  parts.forEach((p) => world.add(p));
+  for (const { v, list } of chunks.values()) {
+    const im = new THREE.InstancedMesh(v >= 0 ? variants[v].g : procG, v >= 0 ? variants[v].m : procM, list.length); im.castShadow = true;
+    list.forEach(([x, z, sc], i) => {
+      q.setFromAxisAngle(up, R() * 6.28);
+      const hs = v >= 0 ? 7 + R() * 4 : sc * 0.9 + 0, w = v >= 0 ? hs * 0.62 : sc * 0.8;
+      m4.compose(new THREE.Vector3(x, 0, z), q, v >= 0 ? new THREE.Vector3(w, hs, w) : new THREE.Vector3(w, sc * (0.9 + R() * 0.3), w));
+      const c = 0.78 + R() * 0.35; col.setRGB(c, c, c); im.setMatrixAt(i, m4); im.setColorAt(i, col);
+    });
+    im.computeBoundingSphere(); world.add(im);
+  }
 
   // rocks and snow drifts
   const rockG = new THREE.IcosahedronGeometry(1, 1), rockM = new THREE.MeshStandardMaterial({ color: 0x7c8087, roughness: 1, flatShading: true });

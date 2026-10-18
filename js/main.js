@@ -12,7 +12,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, rollRarity, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp, newHero, newStorySave } from './data.js';
 import { trailMap, townMap } from './maps.js';
 import { buildSnowWorld, makeSnowfall } from './snow.js';
-import { dialogFor, NPC_INFO, questLine, MEAT_NEED } from './story.js';
+import { dialogFor, NPC_INFO, questLine, MEAT_NEED, recruitInfo, markerFor, huntWanted, storyKill, availableRecruits, fixStory } from './story.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -370,11 +370,17 @@ function unflash(ent) { for (const m of ent.mats) if (m.emissive) { m.emissive.s
 // ---------------- maps: the crypt, the frozen trail, the village ----------------
 const CRYPT = { grid: null }, MAPS = {};
 let MAPNAME = 'crypt', snowfall = null, SPAWN = [3, 3];
+const TREE_ASSETS = []; // real spruce models, loaded at boot if the files exist
 function setGrid(g) { grid.length = 0; for (const r of g) grid.push(r.slice()); GW = g[0].length; GH = g.length; }
 function ensureMap(name) {
   if (MAPS[name]) return MAPS[name];
   const spec = name === 'trail' ? trailMap() : townMap();
-  const world = buildSnowWorld(spec, TILE); world.traverse((o) => { if (o.isInstancedMesh) o.frustumCulled = false; });
+  const world = buildSnowWorld(spec, TILE, TREE_ASSETS);
+  if (name === 'town') { // village dressing (real-world scale props)
+    const P = [['Barrel_01', 17.4, 13.6, 1.5], ['Barrel_01', 22.9, 13.8, 1.5], ['wooden_crate_01', 23.3, 15.0, 1.4], ['wooden_barrels_01', 17.2, 10.2, 1.5], ['wooden_crate_01', 22.8, 10.4, 1.4], ['wooden_bucket_01', 11.6, 13.4, 1.6],
+      ['WoodenTable_01', 14.5, 17.5, 1.5], ['wooden_barrels_01', 3.0, 9.6, 1.5], ['wooden_crate_01', 7.2, 8.0, 1.4], ['Barrel_01', 19.1, 7.6, 1.5], ['wooden_crate_01', 8.3, 16.4, 1.4], ['brass_candleholders', 9.0, 8.0, 1.6], ['brass_candleholders', 18.0, 8.0, 1.6]];
+    for (const [n, cx, cy, sc] of P) { const o = clonePH(n, sc); o.position.set(cx * TILE, 0, cy * TILE); o.rotation.y = rnd(0, 6); world.add(o); }
+  }
   scene.add(world); return (MAPS[name] = { spec, world });
 }
 function setEnv(snow) {
@@ -455,6 +461,8 @@ function makeUnit(hs, i) {
 function fixHeal(u, st) { u.healPct = heroEffects(u.hs).healPct + st.healPct / 100;
 }
 const CLASS_GENDER = { knight: 'female', mage: 'female', healer: 'female', ranger: 'male', warrior: 'male', rogue: 'female' };
+// crypt difficulty by party size: two heroes get a much gentler crypt, a full group of four gets a slightly tougher one
+const SIZE_HP = [0, 0.22, 0.3, 0.55, 0.85], SIZE_ATK = [0, 0.5, 0.5, 0.7, 0.92];
 const STORY_HP = Number(Q.get('shp')) || 1.3, STORY_ATK = Number(Q.get('satk')) || 1.0; // a lone hero fights wolves, not skeleton hordes
 function newGame(tier, opts = {}) {
   TIER = tier; const map = opts.map || 'crypt'; loadMap(map);
@@ -463,7 +471,7 @@ function newGame(tier, opts = {}) {
   const n = units.length, story = !!opts.map;
   G = { party: units, hero: units[0], enemies: [], fx: [], loot: [], drops: [], gold: 0, auto: false, shake: 0, hitstop: 0, over: false, boss: null, bossSpawnedAdds: false, t: 0, kills: 0, potions: 3, potionCd: 0, tier, zoom: 1,
     map, story, hunt: !!opts.hunt, npcs: [], talking: false, hinted: {}, leaving: false, exitCd: 0,
-    mulHp: story ? STORY_HP : PARTY_HP_MULT * Math.max(0.4, n / 4), mulAtk: story ? STORY_ATK : PARTY_ATK_MULT * Math.max(0.55, Math.sqrt(n / 4)) };
+    mulHp: story ? STORY_HP : PARTY_HP_MULT * SIZE_HP[Math.min(n, 4)], mulAtk: story ? STORY_ATK : PARTY_ATK_MULT * SIZE_ATK[Math.min(n, 4)] };
   if (map === 'crypt') spawnRooms(); else if (map === 'trail') spawnTrail(!!opts.hunt); else spawnTown();
   buildPartyBar(); setLead(units[0], true);
   $('#btnAuto').classList.remove('on'); $('#bossbar').classList.remove('on'); syncAutoSk();
@@ -523,8 +531,9 @@ function fadeOut(fn) { const f = $('#fade'); f.classList.add('on'); setTimeout((
 function spawnTrail(hunt) {
   const St = MAPS.trail.spec.stages;
   const SETS = [[['wolf'], ['wolf']], [['wolf', 'wolf'], ['bandit']], [['wolf', 'wolf'], ['bandit', 'wolf']], [['wolf', 'wolf', 'wolf'], ['bandit', 'bandit']], [['wolf', 'wolf', 'bandit'], ['wolf', 'wolf', 'wolf']]];
-  (hunt ? [2, 3, 4] : [0, 1, 2, 3, 4]).forEach((i) => {
-    const [cx, cy] = St[i], set = hunt ? ['wolf', 'wolf', 'wolf'].slice(0, 2 + (i % 2)) : pick(SETS[i]);
+  const HUNT = [['wolf', 'wolf'], ['wolf', 'wolf', 'bandit'], ['wolf', 'bandit', 'wolf'], ['wolf', 'wolf', 'bandit', 'bandit'], ['wolf', 'wolf', 'wolf']];
+  (hunt ? [4, 3, 2, 1, 0] : [0, 1, 2, 3, 4]).forEach((i) => {
+    const [cx, cy] = St[i], set = hunt ? HUNT[4 - i] : pick(SETS[i]);
     set.forEach((t, k) => { const a = rnd(0, 6.28) + k * 2.1; spawnEnemy(t, W2(cx, cy).add(new THREE.Vector3(Math.cos(a) * 2.4, 0, Math.sin(a) * 2.4 - 3)), true); });
   });
 }
@@ -538,36 +547,40 @@ function markerMat(ch) {
 }
 function spawnTown() {
   const sp = MAPS.town.spec, S = SAVE.story, pcls = G.hero.hs.cls;
-  const mk = (id, cls, [cx, cy], face) => {
+  const mk = (id, cls, [cx, cy], face, info) => {
     const C = CLASSES[cls], m = makeModel(C.model, C.show, 1, C.tint, C.real);
     (m.held || []).forEach((o) => { o.visible = false; });
     m.g.position.set(cx * TILE, 0, cy * TILE); m.g.rotation.y = face; scene.add(m.g); m.anim.play('Idle');
     const spr = new THREE.Sprite(markerMat('!')); spr.scale.set(1.7, 1.7, 1); spr.position.set(0, 4.7, 0); spr.renderOrder = 10; m.g.add(spr);
     grid[Math.round(cy)][Math.round(cx)] = 2;
-    G.npcs.push(Object.assign(m, { id, cls, spr, name: NPC_INFO[id].name === 'Elowen' ? S.recruit.name : NPC_INFO[id].name, cell: [Math.round(cx), Math.round(cy)] }));
+    G.npcs.push(Object.assign(m, { id, cls, spr, name: info.name, title: info.title, cell: [Math.round(cx), Math.round(cy)] }));
   };
-  mk('vendor', pcls === 'warrior' ? 'ranger' : 'warrior', sp.npcs.vendor, 0);
-  if (!SAVE.party.includes(S.recruit.cls)) mk('healer', S.recruit.cls, sp.npcs.healer, 0.5);
+  G.mkNpc = mk;
+  mk('vendor', pcls === 'warrior' ? 'ranger' : 'warrior', sp.npcs.vendor, 0, { name: NPC_INFO.vendor.name, title: NPC_INFO.vendor.title });
+  for (const i of availableRecruits(S)) { const c = S.order[i]; mk(c, c, sp.slots[i], 0.4 + i * 0.5, recruitInfo(c, i === 0)); }
 }
-function npcMarker(n) {
-  const q = SAVE.story.q;
-  if (n.id === 'vendor') return q.meat === 'none' ? '!' : (q.meat === 'active' && SAVE.story.meat >= MEAT_NEED) ? '?' : null;
-  return q.meat === 'done' && q.father === 'none' ? '!' : null;
-}
+function npcMarker(n) { return markerFor(n.id, SAVE.story); }
 function openDialog(n) {
   if (!n || G.talking) return;
   G.talking = true; G.hero.path = null; G.hero.target = null; G.hero.anim.play('Idle'); G.hero.state = 'idle'; $('#talk').classList.remove('on');
   faceTo(G.hero, angleTo(G.hero.g.position, n.g.position), 0); faceTo(n, angleTo(n.g.position, G.hero.g.position), 0);
   const d = dialogFor(n.id, SAVE.story, G.hero.hs); let i = 0; n.dlg = d;
-  $('#dlg').classList.add('on'); $('#dname').textContent = n.name; $('#dnpc').textContent = NPC_INFO[n.id].title;
+  $('#dlg').classList.add('on'); $('#dname').textContent = n.name; $('#dnpc').textContent = n.title;
   const show = () => { $('#dtext').textContent = d.lines[i]; const last = i >= d.lines.length - 1;
     $('#dbtns').innerHTML = last ? d.buttons.map((b, k) => `<button class="btn ${k ? 'btn-steel' : 'btn-gold'}" data-k="${k}"><span>${b.label}</span></button>`).join('') : '<button class="btn btn-gold" data-next="1"><span>Next</span></button>'; };
   $('#dbtns').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.next) { i++; show(); } else dialogAct(d.buttons[+b.dataset.k].act, n); };
   show();
 }
 function closeDialog() { $('#dlg').classList.remove('on'); if (G) G.talking = false; }
-function dialogAct(act, n) {
-  const S = SAVE.story; closeDialog();
+function joinParty(cls, name, gender, at) {
+  const lead = G.hero.hs, hs = newHero(SAVE, cls, gender, name); hs.level = lead.level; SAVE.heroes.push(hs);
+  if (SAVE.party.length < 4) {
+    SAVE.party.push(hs.id); const u = makeUnit(hs, G.party.length); fixHeal(u, heroStats(hs)); if (at) u.g.position.copy(at); G.party.push(u); buildPartyBar(); setLead(G.hero, true);
+  } else toast(`${name} waits at camp. Add them in the Party tab.`, '#ffd84a');
+  persist(); toast(`<b>${name}</b> joins your party!`, '#ffd84a'); sfx('level');
+}
+function dialogAct(actFull, n) {
+  const [act, arg] = actFull.split(':'); const S = SAVE.story; closeDialog();
   if (act === 'acceptMeat') {
     S.q.meat = 'active'; persist();
     hint(S.meat >= MEAT_NEED ? 'You already have enough wolf meat. Talk to Bram again!' : `Quest: bring Bram ${MEAT_NEED} wolf meat. Leave by the south gate to hunt wolves on the trail.`, 7500);
@@ -579,13 +592,17 @@ function dialogAct(act, n) {
     persist(); toast(`Hot stew! +40 gold and <span style="color:${RARITIES[it.rar].color}">${it.name}</span> (check your bag)`, '#ffd84a'); sfx('level');
     hint(`Bram fed you well. Now go and talk to ${S.recruit.name} by the well.`, 7500);
   } else if (act === 'acceptFather') {
-    const R = S.recruit, lead = G.hero.hs; S.q.father = 'active';
-    const hs = newHero(SAVE, R.cls, 'female', R.name); hs.level = lead.level; SAVE.heroes.push(hs); SAVE.party.push(hs.id); persist();
-    const u = makeUnit(hs, G.party.length); fixHeal(u, heroStats(hs)); u.g.position.copy(n.g.position); G.party.push(u);
+    const R = S.recruit; S.q.father = 'active'; const info = recruitInfo(R.cls, true);
+    joinParty(R.cls, info.name, info.gender, n.g.position);
     scene.remove(n.g); G.npcs = G.npcs.filter((x) => x !== n); grid[n.cell[1]][n.cell[0]] = 1;
-    buildPartyBar(); setLead(G.hero, true);
-    toast(`<b>${R.name}</b> joins your party!`, '#ffd84a'); sfx('level');
     hint('Quest: find her father. Take the north road out of the village to Hollowmere Crypt.', 8000);
+  } else if (act === 'rqAccept') {
+    S.rq[arg].st = 'active'; persist(); hint(questLine(S, 'town'), 7500);
+  } else if (act === 'rqJoin') {
+    const info = recruitInfo(arg, false); S.rq[arg].st = 'done'; joinParty(arg, info.name, info.gender, n.g.position);
+    scene.remove(n.g); G.npcs = G.npcs.filter((x) => x !== n); grid[n.cell[1]][n.cell[0]] = 1; persist();
+    for (const i of availableRecruits(S)) { const c = S.order[i]; if (!G.npcs.some((x) => x.id === c)) G.mkNpc(c, c, MAPS.town.spec.slots[i], 0.4 + i * 0.5, recruitInfo(c, false)); }
+    hint(questLine(S, 'town'), 7500);
   }
 }
 function refreshParty() {
@@ -599,6 +616,7 @@ function refreshParty() {
 function startLeave(fn) { if (G.leaving) return; G.leaving = true; fadeOut(() => { saveStoryRun(); cleanupRun(); fn(); }); }
 function saveStoryRun() { finishRun(false); }
 function startStory(where, opts = {}) {
+  fixStory(SAVE.story, SAVE.party[0]);
   $('#hub').classList.add('hidden'); $('#modal').classList.remove('on');
   newGame(0, { map: where, ...opts }); updateCamera(0, true);
   const g0 = G, ok = () => G === g0 && !G.over;
@@ -632,11 +650,11 @@ function storyStep(dt) {
     for (const n of G.npcs) { const m = npcMarker(n); n.spr.visible = !!m; if (m) { n.spr.material = markerMat(m); n.spr.position.y = 4.7 + Math.sin(G.t * 3) * 0.18; } }
     const bump = () => { G.hero.path = null; };
     if (cy >= GH - 2 && !G.leaving && G.exitCd <= 0) {
-      if (S.q.meat === 'active' && S.meat < MEAT_NEED) startLeave(() => startStory('trail', { hunt: true, spawn: [12, 6] }));
-      else { G.exitCd = 4; hp.z -= TILE * 1.5; bump(); toast(S.q.meat === 'none' ? 'The trail behind you is empty. Talk to the cook first.' : 'Nothing to hunt on the trail right now.', '#ffd84a'); }
+      if (huntWanted(S)) startLeave(() => startStory('trail', { hunt: true, spawn: [12, 6] }));
+      else { G.exitCd = 4; hp.z -= TILE * 1.5; bump(); toast(S.q.meat === 'none' ? 'The trail behind you is empty. Talk to the cook first.' : 'Nothing to hunt on the trail right now. Take on a quest first.', '#ffd84a'); }
     }
     if (cy <= 3 && cx >= 9 && cx <= 10 && !G.leaving && G.exitCd <= 0) {
-      if (S.q.father === 'active') startLeave(() => { S.stage = 'camp'; persist(); window.HOL.showHub(); });
+      if (S.q.father !== 'none') startLeave(() => { S.stage = 'camp'; persist(); window.HOL.showHub(); });
       else { G.exitCd = 4; hp.z += TILE * 1.5; bump(); toast('The old road to Hollowmere Crypt. You have no reason to go there yet.', '#ffd84a'); }
     }
   }
@@ -843,6 +861,7 @@ function killEnemy(e) {
   for (const u of alive()) { u.xp += xp * 0.6; u.hs.xp = u.xp; while (u.xp >= XP_NEED(u.level)) levelUp(u); }
   const gold = Math.round(rnd(3, 9) * (1 + 0.5 * (e.lvl - 1)) * (e.E.boss ? 12 : 1));
   dropGold(e.g.position, gold);
+  if (SAVE.story) { const m = storyKill(SAVE.story, e.type); if (m) { toast(m, '#ffd84a'); persist(); } }
   if (e.E.drops === 'meat' && G.story && Math.random() < (G.hunt ? 1 : 0.65)) dropMeat(e.g.position);
   const src = e.E.boss ? 'boss' : e.E.heavy ? 'elite' : 'mob';
   const n = src === 'boss' ? 3 : src === 'elite' ? (Math.random() < 0.7 ? 1 : 0) : Math.random() < 0.35 ? 1 : 0;
@@ -1358,14 +1377,17 @@ function showResult(won) {
   const cards = G.loot.slice().sort((a, b) => b.rar - a.rar).map((it, i) => `<div class="lcard r${it.rar}" style="--r:${RARITIES[it.rar].color};animation-delay:${0.4 + i * 0.15}s"><img src="art/icon_${iconOf(it)}.png" alt=""><b>${it.name}</b><small>${RARITIES[it.rar].name}</small></div>`).join('') || '<p class="empty" style="align-self:center">No gear picked up.</p>';
   const lv = G.party.map((u) => `<div class="rstat"><small>${u.C.name}</small><b>Lv ${u.level}</b></div>`).join('');
   const tier = G.tier;
+  let sub = won ? 'The Bone Warden falls. The crypt is quiet... for now.' : 'The dead drag you down. Gear your party up and try again.';
+  if (won && SAVE.story && SAVE.story.q.father === 'active') { const R = SAVE.story.recruit; SAVE.story.q.father = 'done'; SAVE.gold += 120; persist(); sub = `Behind the Warden's throne, in a rusted cage, you find ${R.name}'s father, Edric, weak but alive. "Tell my daughter I am proud of her," he whispers. You lead him out of the dark. (+120 gold). Frostmoor has more people who need help...`; }
   $('#modal').innerHTML = `<div class="result ${won ? '' : 'lose'}"><div class="burst"></div><h1 class="${won ? 'goldtext' : ''}">${won ? 'Victory' : 'Defeated'}</h1>
-    <div class="rsub">${won ? 'The Bone Warden falls. The crypt is quiet... for now.' : 'The dead drag you down. Gear your party up and try again.'}</div>
+    <div class="rsub">${sub}</div>
     <div class="rstats">${lv}<div class="rstat"><small>Gold</small><b>${G.gold}</b></div><div class="rstat"><small>Gear</small><b>${G.loot.length}</b></div></div>
     <div class="lootcards">${cards}</div>
-    <div class="row"><button class="btn btn-gold btn-xl" id="rAgain"><span>Run it again</span></button><button class="btn btn-steel" id="rHub"><span>Back to camp</span></button></div></div>`;
+    <div class="row"><button class="btn btn-gold btn-xl" id="rAgain"><span>Run it again</span></button><button class="btn btn-steel" id="rHub"><span>Back to camp</span></button>${SAVE.story ? '<button class="btn btn-steel" id="rVillage"><span>Visit Frostmoor</span></button>' : ''}</div></div>`;
   $('#modal').classList.add('on');
   $('#rAgain').onclick = () => { cleanupRun(); startRun(tier); };
   $('#rHub').onclick = () => { cleanupRun(); window.HOL.showHub(); };
+  if ($('#rVillage')) $('#rVillage').onclick = () => { cleanupRun(); startStory('town'); };
 }
 function toast(html, color) {
   const d = document.createElement('div'); d.className = 'toast'; d.innerHTML = html; if (color) d.style.setProperty('--tc', color);
@@ -1436,7 +1458,7 @@ function step(dt) {
   updateFx(dt); updateDrops(dt); updateCamera(dt); updateLabels(dt); updateHud();
 }
 window.__three = { renderer, scene, camera };
-window.__game = { get G() { return G; }, step, useSkill, castSkill, CLASSES, findPath, get SAVE() { return SAVE; }, startRun: (t) => startRun(t), setLead }; window.__findPath = findPath; // test hooks
+window.__game = { get G() { return G; }, walkable: (x, z, r) => walkable(x, z, r), step, useSkill, castSkill, CLASSES, findPath, get SAVE() { return SAVE; }, startRun: (t) => startRun(t), setLead }; window.__findPath = findPath; // test hooks
 
 // Compile every shader we will ever need while the loading screen is up (materials are kept, so the compiled programs stay cached).
 const WARM = [];
@@ -1465,6 +1487,7 @@ requestAnimationFrame(frame);
   await loadAll(['Knight', 'Mage', 'Rogue_Hooded', 'Barbarian', 'Skeleton_Minion', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Rogue',
     ...['Skeleton_Blade', 'Skeleton_Axe', 'Skeleton_Staff'].map((n) => `assets/skelweap/${n}.gltf`), ...PROPS.map(D), ...PH_MODELS.map(PH)]);
   for (const c of Object.values(CLASSES)) if (c.real && !REAL[c.real]) { try { await loadReal(c.real); } catch (e) { console.warn('real model missing', c.real, e); c.real = null; } }
+  for (const n of [1, 2, 3]) { try { const g = await loader.loadAsync(`assets/trees/tree${n}.glb`); let mesh = null; g.scene.traverse((o) => { if (o.isMesh && !mesh) mesh = o; }); if (mesh) { mesh.updateWorldMatrix(true, false); const geo = mesh.geometry.clone(); geo.applyMatrix4(mesh.matrixWorld); TREE_ASSETS.push({ geometry: geo, map: mesh.material.map }); } } catch (e) { /* no tree model yet */ } }
   try { GL['assets/wolf/wolf.glb'] = await loader.loadAsync('assets/wolf/wolf.glb'); } catch (e) { console.info('no wolf model yet, using the stand-in'); }
   buildCrypt(); CRYPT.grid = grid.map((r) => r.slice());
   ensureMap('trail'); ensureMap('town'); snowfall = makeSnowfall(MOBILE ? 800 : 1400); scene.add(snowfall);
