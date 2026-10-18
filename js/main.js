@@ -296,6 +296,14 @@ async function sharedClip(file, L) {
     const src = await L.loadAsync(`models3d/shared/${file}.fbx`), c = src.animations[0].clone();
     // keep the character in place: remove sideways/forward drift from the hips (stay with the vertical bob)
     for (const t of c.tracks) if (/Hips\.position$/.test(t.name)) { const v = t.values, x0 = v[0], z0 = v[2]; for (let i = 0; i < v.length; i += 3) { v[i] = x0; v[i + 2] = z0; } }
+    // the run clip was captured turned ~30 degrees: take out its average hip yaw so she runs the way she faces
+    if (/run/i.test(file)) for (const t of c.tracks) if (/Hips\.quaternion$/.test(t.name)) {
+      const v = t.values; let sy = 0, n = 0;
+      for (let i = 0; i < v.length; i += 4) { sy += Math.atan2(2 * (v[i + 3] * v[i + 1] + v[i] * v[i + 2]), 1 - 2 * (v[i + 1] * v[i + 1] + v[i] * v[i])); n++; }
+      const m = sy / n, sn = Math.sin(-m / 2), cs = Math.cos(-m / 2);
+      for (let i = 0; i < v.length; i += 4) { const a = v[i], b = v[i + 1], cc = v[i + 2], d = v[i + 3];
+        v[i] = cs * a + sn * cc; v[i + 1] = cs * b + sn * d; v[i + 2] = cs * cc - sn * a; v[i + 3] = cs * d - sn * b; }
+    }
     SHARED_CLIPS[file] = c;
   }
   return SHARED_CLIPS[file];
