@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#08060b">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Hollowmere</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Cinzel+Decorative:wght@700;900&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/ui.css">
+<link rel="stylesheet" href="css/game3d.css">
+<link rel="stylesheet" href="css/hub.css">
+<script type="importmap">
+{ "imports": {
+  "three": "./vendor/three/build/three.module.js",
+  "three/addons/": "./vendor/three/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="gl"></canvas>
+  <div id="labels"></div>
+
+  <!-- battle HUD -->
+  <div id="hud3" class="hidden">
+    <div id="hud">
+      <div class="portrait"><img id="bPortrait" alt=""><b id="bLevel">1</b></div>
+      <div class="bars">
+        <div class="hname" id="bName"></div>
+        <div class="hp"><i class="hp-trail" id="bHpTrail"></i><i class="hp-fill" id="bHp"></i><span id="bHpText"></span></div>
+        <div class="xp"><i id="bXp"></i></div>
+        <div id="buffs"></div>
+      </div>
+    </div>
+    <div id="partybar"></div>
+    <div id="roomLabel"><small>Hollowmere Crypt</small><b id="roomBig">The Crypt Gate</b></div>
+    <div id="bossbar"><b id="bossName">The Bone Warden</b><div class="bb"><i class="hp-trail" id="bossTrail"></i><i class="bb-fill" id="bossFill"></i></div></div>
+    <div id="topright"><div class="goldpill"><img src="art/icon_gold.png" alt=""><span id="bGold">0</span></div><div class="goldpill"><img src="art/icon_chest.png" alt=""><span id="bLoot">0</span></div><button class="rbtn" id="btnAuto">AUTO</button></div>
+    <div id="joy"><i></i></div>
+    <div id="pad">
+      <button class="orb orb-xl" id="btnAttack" style="--c:#ffd27a"><img src="art/skill_bash.jpg" alt=""><span class="olabel">Attack</span></button>
+      <button class="orb orb-s sk1" data-i="0"><img alt=""><i class="cd"></i><em class="cdn"></em><b class="lock"></b></button>
+      <button class="orb orb-s sk2" data-i="1"><img alt=""><i class="cd"></i><em class="cdn"></em><b class="lock"></b></button>
+      <button class="orb orb-s sk3" data-i="2"><img alt=""><i class="cd"></i><em class="cdn"></em><b class="lock"></b></button>
+      <button class="orb orb-s sk4" data-i="3"><img alt=""><i class="cd"></i><em class="cdn"></em><b class="lock"></b></button>
+      <button class="orb orb-s" id="btnDodge" style="--c:#8fd0ff"><img src="art/skill_dodge.jpg" alt=""><i class="cd"></i><em class="cdn"></em></button>
+      <button class="orb orb-s" id="btnPotion" style="--c:#ff6a5a"><img src="art/icon_potion.png" alt="" class="pot"><b class="pn">3</b></button>
+    </div>
+    <div class="keys">PC: WASD or click to move · J attack · 1 2 3 4 skills · Space dodge · Q potion · R swap lead</div>
+  </div>
+
+  <!-- camp / hub (built by js/hub.js) -->
+  <div id="hub" class="overlay"></div>
+
+  <div id="rotate"><div><b>Turn your phone sideways</b><span>Hollowmere plays best in landscape</span></div></div>
+  <div id="toasts"></div>
+  <div id="modal"></div>
+</div>
+<script type="module" src="js/main.js"></script>
+<script type="module" src="js/hub.js"></script>
+</body>
+</html>

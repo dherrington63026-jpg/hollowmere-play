@@ -1,0 +1,91 @@
+/* 3D test: full-window canvas with the Hollowmere HUD on top (reuses ui.css pieces). */
+html, body { width: 100%; height: 100%; }
+#app { position: fixed; inset: 0; overflow: hidden; background: #050407; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.hidden { display: none !important; }
+#hud3 { position: absolute; inset: 0; pointer-events: none; }
+#hud3 button, #hud3 .rbtn { pointer-events: auto; }
+#topright { pointer-events: auto; }
+#bossbar { top: 78px; }
+
+/* floating bits */
+.dmg { position: absolute; left: 0; top: 0; font: 900 30px Cinzel, serif; color: #fff; white-space: nowrap; will-change: transform, opacity;
+  -webkit-text-stroke: 1.5px rgba(0,0,0,0.85); text-shadow: 0 3px 6px rgba(0,0,0,0.8), 0 0 14px currentColor; }
+.dmg.crit { font-size: 42px; color: #ffd84a; }
+.dmg.hurt { color: #ff6a5a; }
+.dmg.heal { color: #7dff8a; }
+.dmg.info { font-size: 20px; color: #ffe8b0; }
+.ebar { position: absolute; left: 0; top: 0; width: 96px; height: 9px; margin-left: -48px; border-radius: 3px; background: rgba(0,0,0,0.75); box-shadow: 0 0 0 1px rgba(150,115,55,0.9); overflow: hidden; }
+.ebar i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#ff7a64, #d2302a 50%, #7a1410); }
+.ebar.tgt { box-shadow: 0 0 0 2px #ffe08a, 0 0 10px #ffe08a; }
+.lootlbl { position: absolute; left: 0; top: 0; font: 700 13px Cinzel; padding: 3px 10px; border-radius: 3px; background: rgba(8,6,10,0.85); border: 1px solid currentColor; white-space: nowrap; transform-origin: 50% 100%; text-shadow: 0 1px 2px #000; }
+
+/* joystick */
+#joy { position: absolute; width: 150px; height: 150px; margin: -75px 0 0 -75px; border-radius: 50%; display: none; pointer-events: none;
+  background: radial-gradient(circle, rgba(242,205,124,0.08), rgba(242,205,124,0.02) 60%, transparent 70%); box-shadow: inset 0 0 0 2px rgba(242,205,124,0.35); }
+#joy.on { display: block; }
+#joy i { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; margin: -32px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #fff2c4, #c0903f 55%, #6e4e1c); box-shadow: 0 0 0 2px #1a1004, 0 6px 16px rgba(0,0,0,0.6); }
+
+/* right-hand action pad: big attack + ring of 4 skills + dodge + potion */
+#pad { position: absolute; right: 26px; bottom: 26px; width: 420px; height: 380px; pointer-events: none; }
+#pad .orb { position: absolute; }
+.orb-xl { width: 136px; height: 136px; right: 10px; bottom: 10px; }
+.orb-s { width: 72px; height: 72px; }
+.sk1 { right: 180px; bottom: 40px; } .sk2 { right: 161px; bottom: 112px; } .sk3 { right: 112px; bottom: 161px; } .sk4 { right: 40px; bottom: 180px; }
+#btnDodge { right: 276px; bottom: 56px; width: 62px; height: 62px; }
+#btnPotion { right: 268px; bottom: 134px; width: 58px; height: 58px; left: auto; position: absolute; }
+#btnPotion .pot { inset: 12%; width: 76%; height: 76%; object-fit: contain; border-radius: 0; }
+#btnPotion .pn { position: absolute; right: -4px; bottom: -4px; z-index: 3; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font: 900 13px Cinzel; color: #fff;
+  background: radial-gradient(circle at 35% 30%, #ff9a8a, #b0201a 60%, #4a0806); box-shadow: 0 0 0 2px #000; }
+.orb .lock { font-size: 12px; }
+.orb.empty { opacity: 0.35; }
+.keys { left: 50%; transform: translateX(-50%); bottom: 10px; white-space: nowrap; }
+/* party strip under the lead's portrait */
+#partybar { position: absolute; left: 22px; top: 126px; display: flex; gap: 8px; pointer-events: auto; }
+.pcard { position: relative; width: 64px; height: 74px; border-radius: 8px; padding: 0; border: none; cursor: pointer; overflow: hidden; color: var(--ink);
+  background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--c) 30%, #1a141e), #0c0a10 80%); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1), 0 4px 10px rgba(0,0,0,0.6); }
+.pcard img { position: absolute; left: 50%; bottom: 14px; height: 74px; transform: translateX(-50%); filter: drop-shadow(0 3px 4px #000); }
+.pcard span { position: absolute; left: 0; right: 0; top: 3px; text-align: center; font: 700 9px Cinzel; letter-spacing: 0.06em; text-shadow: 0 1px 2px #000; }
+.pcard .php { position: absolute; left: 4px; right: 4px; bottom: 4px; height: 6px; border-radius: 3px; background: #000; box-shadow: 0 0 0 1px #5a4626; overflow: hidden; }
+.pcard .php b { display: block; height: 100%; background: linear-gradient(#ff7a64, #d2302a 50%, #7a1410); }
+.pcard.lead { box-shadow: inset 0 0 0 2px var(--c), 0 0 14px var(--c); }
+.pcard.dead { filter: grayscale(1) brightness(0.5); }
+
+/* start screen */
+.overlay { position: absolute; inset: 0; z-index: 30; }
+.start-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(900px, 94vw); text-align: center; }
+.big { font: 900 clamp(48px, 9vw, 104px) 'Cinzel Decorative', Cinzel, serif; line-height: 1.05; }
+.startp { max-width: 640px; margin: 10px auto 18px; color: #d6cbb6; text-shadow: 0 1px 4px #000; }
+#classPick { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; }
+.cpick { position: relative; width: 150px; height: 190px; border-radius: 8px; overflow: hidden; cursor: pointer; border: 1px solid #3a3040; color: var(--ink);
+  background: radial-gradient(ellipse at 50% 100%, color-mix(in srgb, var(--c) 30%, #1a141e), #0e0b12 75%); box-shadow: 0 6px 16px rgba(0,0,0,0.5); transition: transform .15s; }
+.cpick img { position: absolute; left: 50%; bottom: 30px; height: 175px; transform: translateX(-50%); filter: drop-shadow(0 6px 10px #000); }
+.cpick b { position: absolute; left: 0; right: 0; bottom: 8px; font: 700 16px Cinzel; text-shadow: 0 2px 4px #000; }
+.cpick.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c), 0 0 26px color-mix(in srgb, var(--c) 55%, transparent); }
+.cpick:hover { transform: translateY(-3px); }
+.row.center { justify-content: center; }
+#loadMsg { margin-top: 12px; color: #cdbf9f; min-height: 18px; }
+#modal .result { width: min(900px, 96vw); }
+
+
+/* phones: ask for landscape */
+#rotate { position: fixed; inset: 0; z-index: 200; display: none; place-items: center; text-align: center; background: #08060b; color: var(--ink); }
+#rotate b { display: block; font: 700 22px Cinzel, serif; color: var(--gold-2); margin-bottom: 8px; } #rotate span { color: var(--dim); font-size: 14px; }
+@media (orientation: portrait) and (pointer: coarse) { #rotate { display: grid; } }
+html, body { overscroll-behavior: none; touch-action: none; }
+@media (pointer: coarse) { .keys { display: none; } }
+
+/* short screens (phones in landscape) */
+@media (max-height: 560px) {
+  #pad { transform: scale(0.6); transform-origin: 100% 100%; right: 10px; bottom: 8px; }
+  #hud { transform: scale(0.66); transform-origin: 0 0; left: 10px; top: 8px; }
+  #partybar { transform: scale(0.72); transform-origin: 0 0; left: 12px; top: 64px; }
+  #roomLabel b { font-size: 17px; } #roomLabel small { font-size: 9px; } #roomLabel { top: 6px; }
+  #bossbar { top: 44px; width: 380px; } #bossbar b { font-size: 14px; }
+  #topright { right: 10px; top: 8px; transform: scale(0.8); transform-origin: 100% 0; }
+  #toasts { top: 90px; }
+  .toast { font-size: 12px; min-width: 240px; }
+  .dmg { font-size: 22px; } .dmg.crit { font-size: 30px; }
+}
