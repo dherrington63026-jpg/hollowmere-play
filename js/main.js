@@ -589,6 +589,7 @@ function dialogAct(actFull, n) {
     S.meat = Math.max(0, S.meat - MEAT_NEED); S.q.meat = 'done'; SAVE.gold += 40;
     const h = G.hero.hs, it = makeItem(SAVE, 1, 0, 0, 'armor', null, CLASSES[h.cls].armor, 1); SAVE.bag.push(it);
     for (const u of alive()) { healUnit(u, u.maxHp); u.xp += 40; u.hs.xp = u.xp; while (u.xp >= XP_NEED(u.level)) levelUp(u); }
+    for (const i of availableRecruits(S)) { const c = S.order[i]; if (!G.npcs.some((x) => x.id === c)) G.mkNpc(c, c, MAPS.town.spec.slots[i], 0.4 + i * 0.5, recruitInfo(c, i === 0)); }
     persist(); toast(`Hot stew! +40 gold and <span style="color:${RARITIES[it.rar].color}">${it.name}</span> (check your bag)`, '#ffd84a'); sfx('level');
     hint(`Bram fed you well. Now go and talk to ${S.recruit.name} by the well.`, 7500);
   } else if (act === 'acceptFather') {
