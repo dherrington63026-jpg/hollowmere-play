@@ -60,10 +60,19 @@
   <!-- camp / hub (built by js/hub.js) -->
   <div id="hub" class="overlay"></div>
 
-  <div id="rotate"><div><b>Turn your phone sideways</b><span>Hollowmere plays best in landscape</span><span style="display:block;margin-top:6px;font-size:12px">(If it will not turn, switch off your phone's rotation lock.)</span><button class="btn btn-steel" id="rotOk" style="margin-top:22px" onclick="document.getElementById('rotate').remove()"><span>Play anyway</span></button></div></div>
+  <div id="rotate"><div><b>Turn your phone sideways</b><span>Hollowmere plays best in landscape</span><span style="display:block;margin-top:6px;font-size:12px">(If it will not turn, switch off your phone's rotation lock.)</span><button class="btn btn-gold" id="rotLock" style="margin-top:22px" onclick="window.forceLandscape()"><span>Turn it sideways for me</span></button><br><button class="btn btn-steel" id="rotOk" style="margin-top:12px" onclick="document.getElementById('rotate').remove()"><span>Play anyway</span></button></div></div>
   <div id="toasts"></div>
   <div id="modal"></div>
 </div>
+<script>
+window.forceLandscape = function () {
+  var el = document.documentElement, go = function () { try { return screen.orientation.lock('landscape'); } catch (e) { return Promise.reject(e); } };
+  var fs = el.requestFullscreen ? el.requestFullscreen() : (el.webkitRequestFullscreen ? el.webkitRequestFullscreen() : null);
+  Promise.resolve(fs).then(go, go).catch(function () { });
+};
+// the first tap on a phone also tries it, so players never have to find the button
+addEventListener('pointerdown', function once() { removeEventListener('pointerdown', once); if (matchMedia('(pointer: coarse)').matches && !document.fullscreenElement) window.forceLandscape(); }, { once: true });
+</script>
 <script type="module" src="js/main.js"></script>
 <script type="module" src="js/hub.js"></script>
 </body>
