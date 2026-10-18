@@ -68,6 +68,20 @@ export function questLine(S, where) {
   }
   return 'Chapter 1 complete. Keep delving, and grow your party!';
 }
+// what the current quest line points at: an npc, a gate ('north' = village gate / crypt road, 'south' = hunting trail)
+export function questGoal(S, where) {
+  const q = S.q;
+  if (q.meat === 'none') return where === 'town' ? { npc: 'vendor' } : { gate: 'north' };
+  if (q.meat === 'active') return S.meat >= MEAT_NEED ? { npc: 'vendor' } : { gate: 'south' };
+  if (q.father === 'none') return { npc: S.order[0] };
+  if (q.father === 'active') return { gate: 'north' };
+  for (let i = 1; i < S.order.length; i++) {
+    const c = S.order[i], r = S.rq[c];
+    if (r.st === 'none' || r.st === 'ready') return { npc: c };
+    if (r.st === 'active') return { gate: POOL[c].obj.where === 'crypt' ? 'north' : 'south' };
+  }
+  return null;
+}
 export function markerFor(npc, S) { // '!' = new quest, '?' = hand in
   if (npc === 'vendor') return S.q.meat === 'none' ? '!' : (S.q.meat === 'active' && S.meat >= MEAT_NEED) ? '?' : null;
   const i = S.order.indexOf(npc); if (i < 0) return null;

@@ -12,7 +12,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, rollRarity, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp, newHero, newStorySave } from './data.js';
 import { trailMap, townMap } from './maps.js';
 import { buildSnowWorld, makeSnowfall } from './snow.js';
-import { dialogFor, NPC_INFO, questLine, MEAT_NEED, recruitInfo, markerFor, huntWanted, storyKill, availableRecruits, fixStory } from './story.js';
+import { dialogFor, NPC_INFO, questLine, questGoal, MEAT_NEED, recruitInfo, markerFor, huntWanted, storyKill, availableRecruits, fixStory } from './story.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -628,7 +628,48 @@ function startStory(where, opts = {}) {
   } else if (where === 'trail') hint(`Hunt the wolves for Bram. Wolf meat drops when they fall (${SAVE.story.meat}/${MEAT_NEED}).`, 6500);
   else { SAVE.story.stage = 'town'; persist(); setTimeout(() => { if (ok()) { say('A village... and the smell of food.', 2600); hint('Walk up to someone and tap TALK.', 6000); } }, 1500); }
 }
+// ---- quest compass: arrow to the current objective, and auto-walk there ----
+function questTargetPos() {
+  const S = SAVE.story; if (!S || !G.story) return null;
+  const goal = questGoal(S, G.map); if (!goal) return null;
+  if (G.map === 'town') {
+    if (goal.npc) { const n = G.npcs.find((x) => x.id === goal.npc); return n ? { pos: n.g.position.clone(), npc: true } : null; }
+    return { pos: goal.gate === 'north' ? W2(9.5, 3) : W2(14, 22.5) };
+  }
+  if (G.map === 'trail') {
+    if (G.hunt && goal.gate === 'south') { // still hunting here: point at the nearest wolf or raider
+      let best = null, bd = 1e9; for (const e of G.enemies) { if (e.dead) continue; const d = flat(e.g.position, G.hero.g.position); if (d < bd) { bd = d; best = e; } }
+      if (best) return { pos: best.g.position.clone(), enemy: true };
+    }
+    return { pos: W2(MAPS.trail.spec.gate[0], MAPS.trail.spec.gate[1] + 0.5) };
+  }
+  return null;
+}
+function nearestFloorTo(pos, from) {
+  const [cx, cy] = cellOf(pos.x, pos.z); let best = null, bd = 1e9;
+  for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (isFloor(cx + i, cy + j)) { const w = W2(cx + i, cy + j), d = flat(w, pos) + flat(w, from) * 0.01; if (d < bd) { bd = d; best = w; } }
+  return best || pos;
+}
+function goToQuest() {
+  if (!G || !G.story || G.talking) return; const t = questTargetPos(); if (!t) return;
+  const h = G.hero, to = isFloor(...cellOf(t.pos.x, t.pos.z)) ? t.pos : nearestFloorTo(t.pos, h.g.position);
+  h.target = null; h.path = findPath(h.g.position, to); G.autoQuest = true; ping(to, '#ffd84a');
+}
+function updateQuestArrow() {
+  const el = $('#qarrow'), t = G && G.story && !G.talking ? questTargetPos() : null;
+  if (!t) { el.classList.remove('on'); return; }
+  const [sx, sy, sz] = toScreen(t.pos.clone().setY(t.npc ? 4.5 : 1.5)), W = innerWidth, H = innerHeight, mx = 40, top = 100, bot = 150;
+  const d = flat(t.pos, G.hero.g.position), onScreen = sz < 1 && sx > mx && sx < W - mx && sy > top && sy < H - bot;
+  el.classList.add('on'); el.classList.toggle('near', onScreen); el.querySelector('span').textContent = Math.round(d / M2U) + ' m';
+  if (onScreen) { el.style.transform = `translate(${sx}px, ${sy - 56 + Math.sin(performance.now() / 220) * 6}px) translate(-50%, -50%)`; el.firstChild.style.transform = 'rotate(90deg)'; return; }
+  let dx = sx - W / 2, dy = sy - H / 2; if (sz > 1) { dx = -dx; dy = -dy; }
+  const k = Math.min((W / 2 - mx) / Math.abs(dx || 1e-3), (H / 2 - bot) / Math.abs(dy || 1e-3)), px = W / 2 + dx * k, py = Math.max(top, H / 2 + dy * k);
+  el.style.transform = `translate(${px}px, ${py}px) translate(-50%, -50%)`; el.firstChild.style.transform = `rotate(${Math.atan2(dy, dx)}rad)`;
+}
 function storyStep(dt) {
+  updateQuestArrow();
+  if (G.autoQuest && (!G.hero.path || !G.hero.path.length)) G.autoQuest = false;
+  if (G.autoQuest && liveEnemies().some((e) => flat(e.g.position, G.hero.g.position) < 9)) { G.autoQuest = false; G.hero.path = null; }
   const hp = G.hero.g.position, [cx, cy] = cellOf(hp.x, hp.z), S = SAVE.story;
   G.exitCd = Math.max(0, G.exitCd - dt);
   // teach the controls as they become useful
@@ -684,6 +725,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); doDodge(); }
   if (e.code === 'Digit1') useSkill(0); if (e.code === 'Digit2') useSkill(1); if (e.code === 'Digit3') useSkill(2); if (e.code === 'Digit4') useSkill(3);
   if (e.code === 'KeyQ') drinkPotion();
+  if (e.code === 'KeyG') goToQuest();
   if (e.code === 'KeyE' && G.story && G.map === 'town' && G.nearNpc) openDialog(G.nearNpc);
   if (e.code === 'Tab') { e.preventDefault(); swapHero(); }
   if (e.code === 'KeyR') { const a = alive(), i = a.indexOf(G.hero); setLead(a[(i + 1) % a.length]); }
@@ -765,6 +807,7 @@ const ab = $('#btnAttack');
 ab.addEventListener('pointerdown', (e) => { e.preventDefault(); attackHeld = true; });
 addEventListener('pointerup', () => { attackHeld = false; });
 document.querySelectorAll('#pad [data-i]').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); useSkill(+b.dataset.i); }));
+$('#qtrack').addEventListener('pointerdown', (e) => { e.preventDefault(); goToQuest(); });
 $('#talk').addEventListener('pointerdown', (e) => { e.preventDefault(); if (G && G.nearNpc) openDialog(G.nearNpc); });
 $('#btnMenu').addEventListener('pointerdown', (e) => { e.preventDefault(); window.HOL.openMenu(); });
 const syncAutoSk = () => { const b = $('#btnAutoSk'); b.textContent = SAVE.autoSkills === false ? 'SKILLS: MANUAL' : 'SKILLS: AUTO'; b.classList.toggle('on', SAVE.autoSkills !== false); };

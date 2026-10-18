@@ -7,7 +7,8 @@ body.cold #frost { opacity: 1; animation: shiver 3.2s ease-in-out infinite; }
 #fade.on { opacity: 1; pointer-events: auto; }
 #qtrack { position: absolute; left: 50%; top: 60px; transform: translateX(-50%); display: none; z-index: 12; pointer-events: none; max-width: 70vw; text-align: center;
   font: 700 13px Cinzel; letter-spacing: 0.05em; color: #ffe9b0; padding: 5px 16px; border-radius: 14px; background: rgba(12, 9, 6, 0.55); border: 1px solid rgba(240, 199, 94, 0.35); text-shadow: 0 1px 2px #000; }
-body.story #qtrack { display: block; }
+body.story #qtrack { display: block; pointer-events: auto; cursor: pointer; }
+#qtrack::after { content: ' ▶'; color: #ffd84a; }
 #hud3:not(.story) #btnMenu { display: none; }
 #hint { position: absolute; left: 50%; bottom: 18%; transform: translate(-50%, 12px); opacity: 0; transition: all 0.4s; z-index: 14; pointer-events: none; max-width: min(560px, 80vw); text-align: center;
   font: 600 15px Inter, sans-serif; color: #fff; padding: 10px 18px; border-radius: 12px; background: rgba(10, 14, 22, 0.78); border: 1px solid rgba(160, 200, 255, 0.45); }
@@ -47,3 +48,8 @@ body.story #qtrack { display: block; }
 @media (max-width: 760px), (max-height: 520px) { .cgrid { grid-template-columns: repeat(6, 1fr); gap: 6px; } .ccard { height: 22vh; } .ccard b { font-size: 10px; } .cpanel { gap: 10px; padding: 8px 12px; } .cinfo h2 { font-size: 18px; } .cinfo p { font-size: 12px; } .create { gap: 8px; } }
 #btnAutoSk { font-size: 11px; padding: 0 12px; }
 #btnAutoSk.on { color: #2a1704; background: linear-gradient(#fff2c4, #f0c86e 35%, #b8873a); box-shadow: 0 0 0 1px #000, 0 0 0 2px #ffe2a0; }
+
+#qarrow { position: absolute; left: 0; top: 0; display: none; z-index: 13; pointer-events: none; will-change: transform; }
+#qarrow.on { display: block; }
+#qarrow i { display: block; width: 0; height: 0; border-left: 26px solid #ffd84a; border-top: 16px solid transparent; border-bottom: 16px solid transparent; filter: drop-shadow(0 0 6px #000) drop-shadow(0 0 10px rgba(255, 216, 74, 0.8)); }
+#qarrow span { position: absolute; left: 50%; top: 34px; transform: translateX(-50%); font: 800 12px Cinzel; color: #fff; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; }
