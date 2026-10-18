@@ -53,3 +53,21 @@ body.story #qtrack { display: block; pointer-events: auto; cursor: pointer; }
 #qarrow.on { display: block; }
 #qarrow i { display: block; width: 0; height: 0; border-left: 26px solid #ffd84a; border-top: 16px solid transparent; border-bottom: 16px solid transparent; filter: drop-shadow(0 0 6px #000) drop-shadow(0 0 10px rgba(255, 216, 74, 0.8)); }
 #qarrow span { position: absolute; left: 50%; top: 34px; transform: translateX(-50%); font: 800 12px Cinzel; color: #fff; text-shadow: 0 1px 3px #000, 0 0 6px #000; white-space: nowrap; }
+
+/* result screen: scrollable on phones, and loot card text no longer overlaps the rarity label */
+#modal { overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
+#modal.on { display: flex; }
+#modal .result, #modal .frame { margin: auto; }
+.lcard small { position: static; margin-top: auto; padding-top: 4px; }
+.lcard b { font-size: 11px; }
+@media (max-height: 520px) {
+  #modal { align-items: flex-start; }
+  #modal .result { padding-top: 8px; padding-bottom: 20px; }
+  #modal .result h1 { font-size: 40px; margin: 0; }
+  .result .rsub { font-size: 13px; }
+  .lcard { width: 96px !important; height: 134px !important; padding: 6px 4px; }
+  .lcard img { width: 56px !important; height: 56px !important; }
+  .lcard b { font-size: 9.5px; margin-top: 3px; }
+  .lootcards { gap: 8px; min-height: 0 !important; }
+  .rstat { padding: 4px 10px; }
+}
