@@ -1,3 +1,4 @@
+import { newStory } from './story.js';
 // Chronicles of Hollowmere (working title) - shared game data: classes, skills, gear, save, idle rewards.
 // Design: GAME4-DESIGN.md. 6 classes, 4 skill slots per hero (slots 1-2 own class, 3-4 any), 6 gear colours.
 
@@ -236,9 +237,9 @@ export const TIERS = [{ name: 'Normal', lvl: 1, req: 1 }, { name: 'Veteran', lvl
 
 // ---------- save ----------
 const KEY = 'hollowmere_party_v1';
-export function newHero(save, cls, gender) {
+export function newHero(save, cls, gender, name) {
   const C = CLASSES[cls];
-  const hs = { id: cls, cls, gender, name: DEFAULT_NAMES[cls][gender === 'male' ? 0 : 1], level: 1, xp: 0, pts: EMPTY_PTS(), gear: {}, skills: [C.own[0], C.own[1], C.own[2], null] };
+  const hs = { id: cls, cls, gender, name: name || DEFAULT_NAMES[cls][gender === 'male' ? 0 : 1], level: 1, xp: 0, pts: EMPTY_PTS(), gear: {}, skills: [C.own[0], C.own[1], C.own[2], null] };
   const w = makeItem(save, 1, 0, 0, 'weapon', C.weapon); w.rar = 0; w.name = 'Old ' + BASE_NAMES[C.weapon][0];
   hs.gear.weapon = w; return hs;
 }
@@ -251,6 +252,11 @@ export function newSave() {
 function fixItem(it) {
   if (ARMOR_SLOTS.includes(it.slot) && !it.armor) { it.armor = pick(['heavy', 'medium', 'light']); it.kind = ARMOR_TYPES[it.armor].icon + '_' + it.slot; }
   return it;
+}
+export function newStorySave(cls, gender, name) {
+  try { const old = localStorage.getItem(KEY); if (old) localStorage.setItem(KEY + '_old', old); } catch (e) { }
+  const s = { v: 1, gold: 0, gems: 0, bag: [], nextId: 1, lastSeen: Date.now(), maxTier: 0, cleared: [], runs: 0, heroes: [], party: [cls], story: newStory(cls) };
+  s.heroes.push(newHero(s, cls, gender, name)); return s;
 }
 export function loadSave() {
   try {

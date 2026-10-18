@@ -9,7 +9,10 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, rollRarity, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp } from './data.js';
+import { CLASSES, SKILLS, HEAL_SKILLS, SELF_SKILLS, RARITIES, TIERS, rollRarity, XP_NEED, heroStats, heroEffects, skillCost, loadSave, newSave, writeSave, partyHeroes, makeItem, avgPartyLevel, salvageValue, rnd, pick, clamp, newHero, newStorySave } from './data.js';
+import { trailMap, townMap } from './maps.js';
+import { buildSnowWorld, makeSnowfall } from './snow.js';
+import { dialogFor, NPC_INFO, questLine, MEAT_NEED } from './story.js';
 
 const $ = (s) => document.querySelector(s);
 const Q = new URLSearchParams(location.search);
@@ -20,11 +23,13 @@ const ENEMY = {
   rogue: { model: 'Skeleton_Rogue', weapon: 'Skeleton_Blade', name: 'Skeleton Cutthroat', hp: 50, atk: 7, speed: 4.8, range: 1.8, cd: 1.0, xp: 14, scale: 0.95, attack: '1H_Melee_Attack_Stab' },
   mage: { model: 'Skeleton_Mage', weapon: 'Skeleton_Staff', name: 'Bone Caster', hp: 55, atk: 11, speed: 3.0, range: 9, cd: 2.4, xp: 18, scale: 1, ranged: true, attack: 'Spellcast_Shoot' },
   warrior: { model: 'Skeleton_Warrior', weapon: 'Skeleton_Axe', name: 'Skeleton Brute', hp: 170, atk: 14, speed: 2.8, range: 2.3, cd: 2.2, xp: 30, scale: 1.12, heavy: 0.5, attack: '2H_Melee_Attack_Chop' },
+  wolf: { wolf: true, living: true, name: 'Winter Wolf', hp: 60, atk: 9, speed: 5.4, range: 1.8, cd: 1.3, xp: 12, scale: 1, attack: 'Bite', drops: 'meat' },
+  bandit: { model: 'Rogue_Hooded', show: ['Knife'], tint: 0xb8a58c, living: true, name: 'Trail Raider', hp: 100, atk: 12, speed: 4.6, range: 1.8, cd: 1.5, xp: 20, scale: 1.0, attack: '1H_Melee_Attack_Stab' },
   boss: { model: 'Skeleton_Warrior', weapon: 'Skeleton_Axe', name: 'The Bone Warden', hp: 1500, atk: 22, speed: 3.0, range: 3.4, cd: 2.0, xp: 250, scale: 1.5, heavy: 0.6, boss: true, attack: '2H_Melee_Attack_Chop' },
 };
 // ---------------- the crypt map (cells) ----------------
 // rooms and corridors are carved into a grid; every floor cell is TILE x TILE world units
-const GW = 24, GH = 26;
+let GW = 24, GH = 26;
 const grid = Array.from({ length: GH }, () => Array(GW).fill(0)); // 0 = solid, 1 = floor, 2 = floor but blocked (pillar/prop)
 const ROOMS = {
   A: [1, 1, 5, 5], B: [9, 1, 19, 8], C: [11, 13, 21, 19], D: [1, 14, 8, 24],
@@ -57,7 +62,7 @@ const bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.32, 0.4, 0.95);
 composer.addPass(bloom); if (MOBILE) bloom.enabled = false;
 composer.addPass(new OutputPass());
 
-scene.add(new THREE.HemisphereLight(0x7a88c0, 0x1e160e, 0.5));
+const hemi = new THREE.HemisphereLight(0x7a88c0, 0x1e160e, 0.5); scene.add(hemi);
 const moon = new THREE.DirectionalLight(0xa4b4ff, 0.85);
 moon.castShadow = true; moon.shadow.mapSize.set(MOBILE ? 1024 : 1536, MOBILE ? 1024 : 1536);
 Object.assign(moon.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 80 });
@@ -140,6 +145,7 @@ const glowTexture = (() => {
   x.fillStyle = g; x.fillRect(0, 0, 64, 64); const t = new THREE.CanvasTexture(c); return t;
 })();
 
+let cryptWorld = null;
 const fadeWalls = [];
 const torches = [];
 function buildCrypt() {
@@ -147,7 +153,7 @@ function buildCrypt() {
   const hb = new THREE.Box3().setFromObject(GL.Knight.scene); M2U = (hb.max.y - hb.min.y) / 1.6;
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture; scene.environmentIntensity = 0.22;
-  const world = new THREE.Group(); scene.add(world);
+  const world = cryptWorld = new THREE.Group(); scene.add(world);
   const floorMat = pbr('floor', 1.3, 1.3, { tint: 0xb0a89e }), floorMat2 = pbr('floor2', 1.6, 1.6, { tint: 0xd8d0c8 });
   const wallMat = pbr('wall', 1.2, 1.6, { tint: 0xb4aca2 }), capMat = new THREE.MeshStandardMaterial({ color: 0x15110f, roughness: 1 });
   const pillarMat = pbr('pillar', 1, 2.4, { tint: 0xd0c6ba });
@@ -360,6 +366,74 @@ function flash(ent, color = 0xffd8b0, t = 0.1) {
 function unflash(ent) { for (const m of ent.mats) if (m.emissive) { m.emissive.setHex(0x000000); m.emissiveIntensity = 0; } }
 
 // ---------------- game state ----------------
+
+// ---------------- maps: the crypt, the frozen trail, the village ----------------
+const CRYPT = { grid: null }, MAPS = {};
+let MAPNAME = 'crypt', snowfall = null, SPAWN = [3, 3];
+function setGrid(g) { grid.length = 0; for (const r of g) grid.push(r.slice()); GW = g[0].length; GH = g.length; }
+function ensureMap(name) {
+  if (MAPS[name]) return MAPS[name];
+  const spec = name === 'trail' ? trailMap() : townMap();
+  const world = buildSnowWorld(spec, TILE); world.traverse((o) => { if (o.isInstancedMesh) o.frustumCulled = false; });
+  scene.add(world); return (MAPS[name] = { spec, world });
+}
+function setEnv(snow) {
+  scene.background.set(snow ? 0xb9c8d6 : 0x06050a); scene.fog.color.set(snow ? 0xb9c8d6 : 0x07060a); scene.fog.density = snow ? 0.011 : 0.024;
+  hemi.color.set(snow ? 0xcfe0f2 : 0x7a88c0); hemi.groundColor.set(snow ? 0xdfe8f0 : 0x1e160e); hemi.intensity = snow ? 0.85 : 0.5;
+  moon.color.set(snow ? 0xfff4e6 : 0xa4b4ff); moon.intensity = snow ? 1.25 : 0.85; heroLight.intensity = snow ? 3 : 14;
+  renderer.toneMappingExposure = snow ? 0.8 : 1.15; scene.environmentIntensity = snow ? 0.5 : 0.22;
+}
+function loadMap(name) {
+  MAPNAME = name; const snow = name !== 'crypt';
+  if (cryptWorld) cryptWorld.visible = !snow;
+  for (const k in MAPS) MAPS[k].world.visible = k === name;
+  if (snow) { setGrid(ensureMap(name).spec.grid); MAPS[name].world.visible = true; } else if (CRYPT.grid) setGrid(CRYPT.grid);
+  if (snowfall) snowfall.visible = snow;
+  setEnv(snow);
+  document.body.classList.toggle('cold', name === 'trail');
+}
+
+// ---------------- the wolf (a TRELLIS 3D model animated by hand, or a plain stand-in if the file is missing) ----------------
+class FakeAnim {
+  constructor(root, body, legs) { this.root = root; this.body = body; this.legs = legs || []; this.name = ''; this.t = 0; this.tt = 0; this.dead = false; this.speed = 1; }
+  dur(n) { return n === 'Bite' ? 0.7 : n === 'Death_A' || n === 'Death_B' ? 0.8 : 0.5; }
+  play(n, o = {}) { if (this.dead) return null; if (this.name === n && !o.once) return null; this.name = n; this.t = 0; this.speed = o.speed || 1; if (/Death/.test(n)) this.dead = true; return {}; }
+  update(dt) {
+    this.t += dt * this.speed; this.tt += dt; const n = this.name, b = this.body, run = n === 'Running_A' || n === 'Walking_A';
+    let y = 0, pitch = 0, roll = 0, z = 0, sy = 1;
+    if (run) { const f = 13 * (n === 'Walking_A' ? 0.5 : 1); y = Math.abs(Math.sin(this.tt * f)) * 0.22; pitch = Math.sin(this.tt * f) * 0.07; }
+    else if (n === 'Bite') { const k = Math.min(1, this.t / 0.7); z = Math.sin(k * Math.PI) * 0.9; pitch = -Math.sin(k * Math.PI) * 0.35; if (k >= 1) this.name = 'Idle_Combat'; }
+    else if (n === 'Hit_A') { const k = Math.min(1, this.t / 0.35); z = -Math.sin(k * Math.PI) * 0.4; if (k >= 1) this.name = 'Idle_Combat'; }
+    else if (/Death/.test(n)) { const k = Math.min(1, this.t / 0.7); roll = k * 1.45; y = -k * 0.25; }
+    else { sy = 1 + Math.sin(this.tt * 2.4) * 0.02; pitch = Math.sin(this.tt * 1.3) * 0.02; }
+    b.position.set(0, y, z); b.rotation.set(pitch, 0, roll); b.scale.y = sy;
+    this.legs.forEach((L, i) => { L.rotation.x = run ? Math.sin(this.tt * 13 + (i % 2 ? Math.PI : 0) + (i > 1 ? 1.2 : 0)) * 0.7 : 0; });
+  }
+}
+let WOLF_YAW = Math.PI / 2;
+function makeWolf(E) {
+  const g = new THREE.Group(), body = new THREE.Group(); g.add(body); const mats = [];
+  const G3 = GL['assets/wolf/wolf.glb'];
+  if (G3) {
+    const root = G3.scene.clone(true); root.traverse((m) => { if (m.isMesh) { m.castShadow = true; m.frustumCulled = false; m.material = m.material.clone(); m.material.envMapIntensity = 0.5; mats.push(m.material); } });
+    root.rotation.y = WOLF_YAW; root.updateMatrixWorld(true);
+    const bb = new THREE.Box3().setFromObject(root), len = Math.max(bb.max.x - bb.min.x, bb.max.z - bb.min.z), k = (1.55 * M2U * E.scale) / len; root.scale.setScalar(k);
+    bb.setFromObject(root); const c = bb.getCenter(new THREE.Vector3()); root.position.set(-c.x, -bb.min.y, -c.z); body.add(root);
+    return { g, root: body, mats, anim: new FakeAnim(g, body) };
+  }
+  const fur = new THREE.MeshStandardMaterial({ color: 0x8a8d92, roughness: 1 }), dark = new THREE.MeshStandardMaterial({ color: 0x4a4c52, roughness: 1 }); mats.push(fur, dark);
+  const mk = (geo, mat, x, y, z, sx = 1, sy = 1, sz = 1) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.scale.set(sx, sy, sz); m.castShadow = true; return m; };
+  const torso = mk(new THREE.SphereGeometry(0.55, 14, 10), fur, 0, 1.05, 0, 0.8, 0.75, 1.7), head = mk(new THREE.SphereGeometry(0.34, 12, 10), fur, 0, 1.3, 1.05, 1, 0.9, 1.1);
+  const snout = mk(new THREE.ConeGeometry(0.2, 0.55, 8), dark, 0, 1.2, 1.5); snout.rotation.x = Math.PI / 2;
+  const tail = mk(new THREE.ConeGeometry(0.17, 0.9, 8), dark, 0, 1.05, -1.2); tail.rotation.x = -2.1;
+  const ears = [-0.2, 0.2].map((x) => mk(new THREE.ConeGeometry(0.1, 0.28, 6), dark, x, 1.65, 0.95));
+  body.add(torso, head, snout, tail, ...ears);
+  const legs = [[-0.3, 0.8], [0.3, 0.8], [-0.3, -0.7], [0.3, -0.7]].map(([x, z]) => { const l = new THREE.Group(); l.position.set(x, 0.85, z); l.add(mk(new THREE.CylinderGeometry(0.1, 0.07, 0.85, 6), dark, 0, -0.42, 0)); body.add(l); return l; });
+  g.scale.setScalar(E.scale * 0.9);
+  return { g, root: body, mats, anim: new FakeAnim(g, body, legs) };
+}
+const buildEnemy = (E) => { const m = E.wolf ? makeWolf(E) : makeModel(E.model, E.show || null, E.scale, E.tint || 0); if (E.weapon) attachWeapon(m, E.weapon); return m; };
+
 let G = null;
 let ACT = null; // the unit whose action is being resolved, so delayed hits credit the right hero
 let SAVE = loadSave() || newSave();
@@ -372,7 +446,7 @@ function makeUnit(hs, i) {
   const C = CLASSES[hs.cls], st = heroStats(hs);
   const m = makeModel(C.model, C.show, 1, C.tint, C.real);
   const off = [[0, 0], [-1.8, 1.4], [1.8, 1.4], [0, 2.8]][i];
-  m.g.position.copy(W2(3, 3)).add(new THREE.Vector3(off[0], 0, off[1])); scene.add(m.g);
+  m.g.position.copy(W2(SPAWN[0], SPAWN[1])).add(new THREE.Vector3(off[0], 0, off[1])); scene.add(m.g);
   m.anim.play('Idle');
   return Object.assign(m, { hs, C, name: hs.name, hp: st.hp, maxHp: st.hp, atk: st.atk, def: st.def, crit: st.crit, haste: st.haste, level: hs.level, xp: hs.xp,
     skills: hs.skills.slice(), mana: st.mana, maxMana: st.mana, manaRegen: st.manaRegen, cds: [0, 0, 0, 0], state: 'idle', stateT: 0, combo: 0, dodgeCd: 0, iframes: 0, buffs: {}, target: null, path: null, flashT: 0, hitDone: false,
@@ -380,14 +454,21 @@ function makeUnit(hs, i) {
 }
 function fixHeal(u, st) { u.healPct = heroEffects(u.hs).healPct + st.healPct / 100;
 }
-function newGame(tier) {
-  TIER = tier;
+const CLASS_GENDER = { knight: 'female', mage: 'female', healer: 'female', ranger: 'male', warrior: 'male', rogue: 'female' };
+const STORY_HP = Number(Q.get('shp')) || 1.3, STORY_ATK = Number(Q.get('satk')) || 1.0; // a lone hero fights wolves, not skeleton hordes
+function newGame(tier, opts = {}) {
+  TIER = tier; const map = opts.map || 'crypt'; loadMap(map);
+  SPAWN = opts.spawn || (map === 'trail' ? MAPS.trail.spec.start : map === 'town' ? MAPS.town.spec.start : [3, 3]);
   const units = partyHeroes(SAVE).slice(0, 4).map((hs, i) => { const u = makeUnit(hs, i); fixHeal(u, heroStats(hs)); return u; });
-  G = { party: units, hero: units[0], enemies: [], fx: [], loot: [], drops: [], gold: 0, auto: false, shake: 0, hitstop: 0, over: false, boss: null, bossSpawnedAdds: false, t: 0, kills: 0, potions: 3, potionCd: 0, tier, zoom: 1 };
-  spawnRooms();
+  const n = units.length, story = !!opts.map;
+  G = { party: units, hero: units[0], enemies: [], fx: [], loot: [], drops: [], gold: 0, auto: false, shake: 0, hitstop: 0, over: false, boss: null, bossSpawnedAdds: false, t: 0, kills: 0, potions: 3, potionCd: 0, tier, zoom: 1,
+    map, story, hunt: !!opts.hunt, npcs: [], talking: false, hinted: {}, leaving: false, exitCd: 0,
+    mulHp: story ? STORY_HP : PARTY_HP_MULT * Math.max(0.4, n / 4), mulAtk: story ? STORY_ATK : PARTY_ATK_MULT * Math.max(0.55, Math.sqrt(n / 4)) };
+  if (map === 'crypt') spawnRooms(); else if (map === 'trail') spawnTrail(!!opts.hunt); else spawnTown();
   buildPartyBar(); setLead(units[0], true);
-  $('#btnAuto').classList.remove('on'); $('#bossbar').classList.remove('on');
-  $('#hud3').classList.remove('hidden');
+  $('#btnAuto').classList.remove('on'); $('#bossbar').classList.remove('on'); syncAutoSk();
+  $('#hud3').classList.remove('hidden'); $('#hud3').classList.toggle('story', story); document.body.classList.toggle('story', story);
+  $('#talk').classList.remove('on'); $('#dlg').classList.remove('on');
 }
 function setLead(u, first) {
   if (!first && u === G.hero) return;
@@ -420,17 +501,161 @@ function spawnRooms() {
 }
 function spawnEnemy(type, pos, dormant) {
   const E = ENEMY[type], T = TIERS[TIER], L = T.lvl - 1;
-  const hpMul = (1 + 0.24 * L) * (1 + 0.12 * TIER) * PARTY_HP_MULT, atkMul = (1 + 0.2 * L) * (1 + 0.08 * TIER);
-  const m = makeModel(E.model, null, E.scale);
-  attachWeapon(m, E.weapon);
+  const hpMul = (1 + 0.24 * L) * (1 + 0.12 * TIER) * G.mulHp, atkMul = (1 + 0.2 * L) * (1 + 0.08 * TIER);
+  const m = buildEnemy(E);
   m.g.position.copy(pos); m.g.rotation.y = rnd(0, Math.PI * 2); scene.add(m.g);
   const hp = Math.round(E.hp * hpMul);
-  const e = Object.assign(m, { E, type, lvl: T.lvl, hp, maxHp: hp, atkPow: E.atk * atkMul * PARTY_ATK_MULT, state: dormant ? 'dormant' : 'idle', stateT: 0, atkCd: rnd(0.5, 1.5), flashT: 0, dead: false, radius: 0.55 * E.scale,
+  const e = Object.assign(m, { E, type, lvl: T.lvl, hp, maxHp: hp, atkPow: E.atk * atkMul * G.mulAtk, state: dormant ? 'dormant' : 'idle', stateT: 0, atkCd: rnd(0.5, 1.5), flashT: 0, dead: false, radius: 0.55 * E.scale,
     stun: 0, slow: 0, mark: 0, wind: null, bar: null, hitDone: false, alert: !dormant });
-  if (dormant) m.anim.play('Skeletons_Inactive_Floor_Pose'); else m.anim.play(E.boss ? 'Idle' : 'Idle_Combat');
+  if (dormant) m.anim.play(E.living ? 'Idle_Combat' : 'Skeletons_Inactive_Floor_Pose'); else m.anim.play(E.boss ? 'Idle' : 'Idle_Combat');
   const bar = document.createElement('div'); bar.className = 'ebar'; bar.innerHTML = '<i></i>'; bar.style.display = 'none'; $('#labels').appendChild(bar); e.bar = bar;
   G.enemies.push(e);
   return e;
+}
+
+
+// ---------------- story mode: trail, village, quests ----------------
+function hint(msg, ms = 6000) { const el = $('#hint'); el.innerHTML = msg; el.classList.add('on'); clearTimeout(hint.t); hint.t = setTimeout(() => el.classList.remove('on'), ms); }
+function say(text, ms = 2400) { const el = $('#sub'); el.textContent = text; el.classList.add('on'); clearTimeout(say.t); say.t = setTimeout(() => el.classList.remove('on'), ms); }
+function voice(name) { try { const a = new Audio(`audio/${name}_${G.hero.hs.gender === 'male' ? 'm' : 'f'}.mp3`); a.volume = 0.95; a.play().catch(() => { }); } catch (e) { } }
+function fadeOut(fn) { const f = $('#fade'); f.classList.add('on'); setTimeout(() => { fn(); setTimeout(() => f.classList.remove('on'), 300); }, 700); }
+
+function spawnTrail(hunt) {
+  const St = MAPS.trail.spec.stages;
+  const SETS = [[['wolf'], ['wolf']], [['wolf', 'wolf'], ['bandit']], [['wolf', 'wolf'], ['bandit', 'wolf']], [['wolf', 'wolf', 'wolf'], ['bandit', 'bandit']], [['wolf', 'wolf', 'bandit'], ['wolf', 'wolf', 'wolf']]];
+  (hunt ? [2, 3, 4] : [0, 1, 2, 3, 4]).forEach((i) => {
+    const [cx, cy] = St[i], set = hunt ? ['wolf', 'wolf', 'wolf'].slice(0, 2 + (i % 2)) : pick(SETS[i]);
+    set.forEach((t, k) => { const a = rnd(0, 6.28) + k * 2.1; spawnEnemy(t, W2(cx, cy).add(new THREE.Vector3(Math.cos(a) * 2.4, 0, Math.sin(a) * 2.4 - 3)), true); });
+  });
+}
+const markerMats = {};
+function markerMat(ch) {
+  if (markerMats[ch]) return markerMats[ch];
+  const c = document.createElement('canvas'); c.width = c.height = 96; const x = c.getContext('2d');
+  x.fillStyle = '#1b1410'; x.beginPath(); x.arc(48, 48, 40, 0, 7); x.fill(); x.strokeStyle = '#f0c75e'; x.lineWidth = 6; x.stroke();
+  x.fillStyle = '#ffd86a'; x.font = '900 62px Cinzel, serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(ch, 48, 52);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return (markerMats[ch] = new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
+}
+function spawnTown() {
+  const sp = MAPS.town.spec, S = SAVE.story, pcls = G.hero.hs.cls;
+  const mk = (id, cls, [cx, cy], face) => {
+    const C = CLASSES[cls], m = makeModel(C.model, C.show, 1, C.tint, C.real);
+    (m.held || []).forEach((o) => { o.visible = false; });
+    m.g.position.set(cx * TILE, 0, cy * TILE); m.g.rotation.y = face; scene.add(m.g); m.anim.play('Idle');
+    const spr = new THREE.Sprite(markerMat('!')); spr.scale.set(1.7, 1.7, 1); spr.position.set(0, 4.7, 0); spr.renderOrder = 10; m.g.add(spr);
+    grid[Math.round(cy)][Math.round(cx)] = 2;
+    G.npcs.push(Object.assign(m, { id, cls, spr, name: NPC_INFO[id].name === 'Elowen' ? S.recruit.name : NPC_INFO[id].name, cell: [Math.round(cx), Math.round(cy)] }));
+  };
+  mk('vendor', pcls === 'warrior' ? 'ranger' : 'warrior', sp.npcs.vendor, 0);
+  if (!SAVE.party.includes(S.recruit.cls)) mk('healer', S.recruit.cls, sp.npcs.healer, 0.5);
+}
+function npcMarker(n) {
+  const q = SAVE.story.q;
+  if (n.id === 'vendor') return q.meat === 'none' ? '!' : (q.meat === 'active' && SAVE.story.meat >= MEAT_NEED) ? '?' : null;
+  return q.meat === 'done' && q.father === 'none' ? '!' : null;
+}
+function openDialog(n) {
+  if (!n || G.talking) return;
+  G.talking = true; G.hero.path = null; G.hero.target = null; G.hero.anim.play('Idle'); G.hero.state = 'idle'; $('#talk').classList.remove('on');
+  faceTo(G.hero, angleTo(G.hero.g.position, n.g.position), 0); faceTo(n, angleTo(n.g.position, G.hero.g.position), 0);
+  const d = dialogFor(n.id, SAVE.story, G.hero.hs); let i = 0; n.dlg = d;
+  $('#dlg').classList.add('on'); $('#dname').textContent = n.name; $('#dnpc').textContent = NPC_INFO[n.id].title;
+  const show = () => { $('#dtext').textContent = d.lines[i]; const last = i >= d.lines.length - 1;
+    $('#dbtns').innerHTML = last ? d.buttons.map((b, k) => `<button class="btn ${k ? 'btn-steel' : 'btn-gold'}" data-k="${k}"><span>${b.label}</span></button>`).join('') : '<button class="btn btn-gold" data-next="1"><span>Next</span></button>'; };
+  $('#dbtns').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; if (b.dataset.next) { i++; show(); } else dialogAct(d.buttons[+b.dataset.k].act, n); };
+  show();
+}
+function closeDialog() { $('#dlg').classList.remove('on'); if (G) G.talking = false; }
+function dialogAct(act, n) {
+  const S = SAVE.story; closeDialog();
+  if (act === 'acceptMeat') {
+    S.q.meat = 'active'; persist();
+    hint(S.meat >= MEAT_NEED ? 'You already have enough wolf meat. Talk to Bram again!' : `Quest: bring Bram ${MEAT_NEED} wolf meat. Leave by the south gate to hunt wolves on the trail.`, 7500);
+  } else if (act === 'goHunt') { startLeave(() => startStory('trail', { hunt: true, spawn: [12, 6] })); }
+  else if (act === 'turnMeat') {
+    S.meat = Math.max(0, S.meat - MEAT_NEED); S.q.meat = 'done'; SAVE.gold += 40;
+    const h = G.hero.hs, it = makeItem(SAVE, 1, 0, 0, 'armor', null, CLASSES[h.cls].armor, 1); SAVE.bag.push(it);
+    for (const u of alive()) { healUnit(u, u.maxHp); u.xp += 40; u.hs.xp = u.xp; while (u.xp >= XP_NEED(u.level)) levelUp(u); }
+    persist(); toast(`Hot stew! +40 gold and <span style="color:${RARITIES[it.rar].color}">${it.name}</span> (check your bag)`, '#ffd84a'); sfx('level');
+    hint(`Bram fed you well. Now go and talk to ${S.recruit.name} by the well.`, 7500);
+  } else if (act === 'acceptFather') {
+    const R = S.recruit, lead = G.hero.hs; S.q.father = 'active';
+    const hs = newHero(SAVE, R.cls, 'female', R.name); hs.level = lead.level; SAVE.heroes.push(hs); SAVE.party.push(hs.id); persist();
+    const u = makeUnit(hs, G.party.length); fixHeal(u, heroStats(hs)); u.g.position.copy(n.g.position); G.party.push(u);
+    scene.remove(n.g); G.npcs = G.npcs.filter((x) => x !== n); grid[n.cell[1]][n.cell[0]] = 1;
+    buildPartyBar(); setLead(G.hero, true);
+    toast(`<b>${R.name}</b> joins your party!`, '#ffd84a'); sfx('level');
+    hint('Quest: find her father. Take the north road out of the village to Hollowmere Crypt.', 8000);
+  }
+}
+function refreshParty() {
+  for (const u of G.party) {
+    const st = heroStats(u.hs), r = u.hp / u.maxHp;
+    Object.assign(u, { maxHp: st.hp, hp: Math.min(st.hp, Math.max(1, Math.round(st.hp * r))), atk: st.atk, def: st.def, crit: st.crit, haste: st.haste, maxMana: st.mana, manaRegen: st.manaRegen, skills: u.hs.skills.slice(), ...heroEffects(u.hs) });
+    fixHeal(u, st); u.mana = Math.min(u.mana, u.maxMana);
+  }
+  setLead(G.hero, true);
+}
+function startLeave(fn) { if (G.leaving) return; G.leaving = true; fadeOut(() => { saveStoryRun(); cleanupRun(); fn(); }); }
+function saveStoryRun() { finishRun(false); }
+function startStory(where, opts = {}) {
+  $('#hub').classList.add('hidden'); $('#modal').classList.remove('on');
+  newGame(0, { map: where, ...opts }); updateCamera(0, true);
+  const g0 = G, ok = () => G === g0 && !G.over;
+  if (where === 'trail' && !opts.hunt) {
+    SAVE.story.stage = 'trail'; persist();
+    setTimeout(() => { if (ok()) { voice('cold'); say("It's so cold...", 2300); } }, 1800);
+    setTimeout(() => { if (ok()) { voice('starving'); say("I'm starving...", 2300); } }, 5600);
+    setTimeout(() => { if (ok()) hint('Drag on the screen (or use WASD) to walk. Follow the trail north to find shelter.', 8000); }, 8600);
+  } else if (where === 'trail') hint(`Hunt the wolves for Bram. Wolf meat drops when they fall (${SAVE.story.meat}/${MEAT_NEED}).`, 6500);
+  else { SAVE.story.stage = 'town'; persist(); setTimeout(() => { if (ok()) { say('A village... and the smell of food.', 2600); hint('Walk up to someone and tap TALK.', 6000); } }, 1500); }
+}
+function storyStep(dt) {
+  const hp = G.hero.g.position, [cx, cy] = cellOf(hp.x, hp.z), S = SAVE.story;
+  G.exitCd = Math.max(0, G.exitCd - dt);
+  // teach the controls as they become useful
+  const H = G.hinted, near = liveEnemies().find((e) => flat(e.g.position, hp) < 13);
+  if (G.map === 'trail' && !G.hunt) {
+    if (near && !H.fight) { H.fight = 1; hint('Something is coming! Tap it, or press ATTACK, to fight.', 6000); }
+    else if (G.kills >= 1 && !H.skill) { H.skill = 1; hint('Skill buttons cost mana. Tap one when it glows.', 6000); }
+    else if (G.hero.hp < G.hero.maxHp * 0.55 && !H.dodge) { H.dodge = 1; hint('Hurt? DODGE rolls away from hits and the POTION button heals.', 7000); }
+  }
+  if (G.map === 'trail') {
+    if (G.hunt && S.meat >= MEAT_NEED && !H.enough) { H.enough = 1; hint('Enough wolf meat! Head north back to the village.', 6500); }
+    if (cy <= MAPS.trail.spec.gate[1] && !G.leaving) {
+      if (liveEnemies().some((e) => flat(e.g.position, hp) < 14)) { if (G.exitCd <= 0) { G.exitCd = 4; toast('Deal with the enemies first!', '#ff8a6a'); } }
+      else startLeave(() => startStory('town'));
+    }
+  } else if (G.map === 'town') {
+    let best = null, bd = 99; for (const n of G.npcs) { const d = flat(n.g.position, hp); if (d < (n.id === 'vendor' ? 11 : 6.5) && d < bd) { bd = d; best = n; } }
+    G.nearNpc = best; const tk = $('#talk'); tk.classList.toggle('on', !!best && !G.talking); if (best) tk.firstChild.textContent = 'TALK to ' + best.name;
+    for (const n of G.npcs) { const m = npcMarker(n); n.spr.visible = !!m; if (m) { n.spr.material = markerMat(m); n.spr.position.y = 4.7 + Math.sin(G.t * 3) * 0.18; } }
+    const bump = () => { G.hero.path = null; };
+    if (cy >= GH - 2 && !G.leaving && G.exitCd <= 0) {
+      if (S.q.meat === 'active' && S.meat < MEAT_NEED) startLeave(() => startStory('trail', { hunt: true, spawn: [12, 6] }));
+      else { G.exitCd = 4; hp.z -= TILE * 1.5; bump(); toast(S.q.meat === 'none' ? 'The trail behind you is empty. Talk to the cook first.' : 'Nothing to hunt on the trail right now.', '#ffd84a'); }
+    }
+    if (cy <= 3 && cx >= 9 && cx <= 10 && !G.leaving && G.exitCd <= 0) {
+      if (S.q.father === 'active') startLeave(() => { S.stage = 'camp'; persist(); window.HOL.showHub(); });
+      else { G.exitCd = 4; hp.z += TILE * 1.5; bump(); toast('The old road to Hollowmere Crypt. You have no reason to go there yet.', '#ffd84a'); }
+    }
+  }
+}
+function showStoryDefeat() {
+  finishRun(false); const hunt = G.hunt, map = G.map;
+  $('#modal').innerHTML = `<div class="result lose"><div class="burst"></div><h1>You collapse in the snow</h1><div class="rsub">The cold and the fight were too much... but you can still get back up.</div><div class="row"><button class="btn btn-gold btn-xl" id="rAgain"><span>Get back up</span></button></div></div>`;
+  $('#modal').classList.add('on');
+  $('#rAgain').onclick = () => { cleanupRun(); startStory(map, hunt ? { hunt: true, spawn: [12, 6] } : {}); };
+}
+function dropMeat(pos) {
+  const g = new THREE.Group(); g.position.copy(pos).add(new THREE.Vector3(rnd(-0.8, 0.8), 0, rnd(-0.8, 0.8)));
+  const m = new THREE.Group();
+  const steak = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10), new THREE.MeshStandardMaterial({ color: 0xc23f45, roughness: 0.55, emissive: 0x401015, emissiveIntensity: 0.6 })); steak.scale.set(1.25, 0.8, 0.95);
+  const bone = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0xf0e8d8, roughness: 0.7 })); bone.rotation.z = Math.PI / 2; bone.position.x = 0.55;
+  m.add(steak, bone); m.position.y = 0.6;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.3, 2.6, 10, 1, true), glowMat(0xff7a7a, 0.5)); beam.position.y = 1.3;
+  g.add(m, beam); scene.add(g);
+  G.drops.push({ kind: 'meat', o: g, gem: m, t: 0 }); sfx('loot');
 }
 
 // ---------------- input ----------------
@@ -441,6 +666,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Space') { e.preventDefault(); doDodge(); }
   if (e.code === 'Digit1') useSkill(0); if (e.code === 'Digit2') useSkill(1); if (e.code === 'Digit3') useSkill(2); if (e.code === 'Digit4') useSkill(3);
   if (e.code === 'KeyQ') drinkPotion();
+  if (e.code === 'KeyE' && G.story && G.map === 'town' && G.nearNpc) openDialog(G.nearNpc);
   if (e.code === 'Tab') { e.preventDefault(); swapHero(); }
   if (e.code === 'KeyR') { const a = alive(), i = a.indexOf(G.hero); setLead(a[(i + 1) % a.length]); }
 });
@@ -521,6 +747,10 @@ const ab = $('#btnAttack');
 ab.addEventListener('pointerdown', (e) => { e.preventDefault(); attackHeld = true; });
 addEventListener('pointerup', () => { attackHeld = false; });
 document.querySelectorAll('#pad [data-i]').forEach((b) => b.addEventListener('pointerdown', (e) => { e.preventDefault(); useSkill(+b.dataset.i); }));
+$('#talk').addEventListener('pointerdown', (e) => { e.preventDefault(); if (G && G.nearNpc) openDialog(G.nearNpc); });
+$('#btnMenu').addEventListener('pointerdown', (e) => { e.preventDefault(); window.HOL.openMenu(); });
+const syncAutoSk = () => { const b = $('#btnAutoSk'); b.textContent = SAVE.autoSkills === false ? 'SKILLS: MANUAL' : 'SKILLS: AUTO'; b.classList.toggle('on', SAVE.autoSkills !== false); };
+$('#btnAutoSk').addEventListener('pointerdown', (e) => { e.preventDefault(); SAVE.autoSkills = SAVE.autoSkills === false; persist(); syncAutoSk(); });
 const swapHero = () => { if (!G || G.over) return; const a = alive(); if (a.length > 1) setLead(a[(a.indexOf(G.hero) + 1) % a.length]); };
 $('#btnSwap').addEventListener('pointerdown', (e) => { e.preventDefault(); swapHero(); });
 $('#btnDodge').addEventListener('pointerdown', (e) => { e.preventDefault(); doDodge(); });
@@ -600,6 +830,7 @@ function healUnit(u, a, quiet) {
 }
 function wake(e) {
   if (e.state !== 'dormant') return;
+  if (e.E.living) { e.state = 'idle'; e.stateT = 0; return; }
   e.state = 'waking'; e.stateT = 0; e.anim.play('Skeletons_Awaken_Floor', { once: true, speed: 1.3 });
   e.wakeDur = e.anim.dur('Skeletons_Awaken_Floor') / 1.3;
 }
@@ -612,6 +843,7 @@ function killEnemy(e) {
   for (const u of alive()) { u.xp += xp * 0.6; u.hs.xp = u.xp; while (u.xp >= XP_NEED(u.level)) levelUp(u); }
   const gold = Math.round(rnd(3, 9) * (1 + 0.5 * (e.lvl - 1)) * (e.E.boss ? 12 : 1));
   dropGold(e.g.position, gold);
+  if (e.E.drops === 'meat' && G.story && Math.random() < (G.hunt ? 1 : 0.65)) dropMeat(e.g.position);
   const src = e.E.boss ? 'boss' : e.E.heavy ? 'elite' : 'mob';
   const n = src === 'boss' ? 3 : src === 'elite' ? (Math.random() < 0.7 ? 1 : 0) : Math.random() < 0.35 ? 1 : 0;
   for (let i = 0; i < n; i++) dropItem(e.g.position.clone().add(new THREE.Vector3(rnd(-1.6, 1.6), 0, rnd(-1.6, 1.6))), src);
@@ -758,6 +990,8 @@ function updateUnit(h, dt) {
     else { const mv = ctrl && moveInput(); if (mv && h.stateT > h.hitAt) h.state = 'idle'; else return; }
   }
   if (h.state === 'skill' || h.state === 'dodge') { if (h.stateT >= h.stateDur) h.state = 'idle'; else return; }
+  if (ctrl && h === G.hero && SAVE.autoSkills !== false && h.state !== 'attack') aiSkills(h, dt, h.target && !h.target.dead ? h.target : nearestEnemy(h, 12));
+  if (h.state === 'skill') return;
   if (ctrl) controlLead(h, dt); else aiUnit(h, dt);
 }
 // the hero you are steering: joystick, tapped path or tapped enemy
@@ -990,10 +1224,12 @@ function updateDrops(dt) {
   for (const d of G.drops) {
     d.t += dt;
     if (d.gem) { d.gem.rotation.y += dt * 2; d.gem.position.y = 0.6 + Math.sin(d.t * 3) * 0.12; }
+    if (d.kind === 'meat') { for (const o of d.o.children) if (o.geometry && o.geometry.type === 'CylinderGeometry' && o.material.transparent) o.rotation.y += dt; }
     const who = d.t > 0.5 ? alive().find((u) => flat(d.o.position, u.g.position) < (d.kind === 'gold' ? 1.8 : 1.6)) : null;
     if (who) {
       d.dead = true; scene.remove(d.o);
-      if (d.kind === 'gold') { G.gold += d.amount; floatText(who.g.position, `+${d.amount} gold`, 'info', 3.2); sfx('coin'); }
+      if (d.kind === 'meat') { SAVE.story.meat++; persist(); floatText(who.g.position, `Wolf meat ${SAVE.story.meat}/${MEAT_NEED}`, 'info', 3.2); toast(`Wolf meat (${SAVE.story.meat}/${MEAT_NEED})`, '#ff9a8a'); sfx('loot'); }
+      else if (d.kind === 'gold') { G.gold += d.amount; floatText(who.g.position, `+${d.amount} gold`, 'info', 3.2); sfx('coin'); }
       else { G.loot.push(d.item); d.lbl.remove(); toast(`<img src="art/icon_${iconOf(d.item)}.png" alt=""> <span style="color:${d.color}">${d.item.name}</span>`, d.color); sfx('loot'); }
     }
   }
@@ -1052,6 +1288,7 @@ function updateHud() {
   $('#buffs').innerHTML = [['guard', 'Holy Guard'], ['cry', 'Battle Cry'], ['smoke', 'Smoke'], ['haste', 'Haste']].filter(([k]) => h.buffs[k] > 0).map(([k, n]) => `<span>${n} ${Math.ceil(h.buffs[k])}s</span>`).join('') + (h.hot ? '<span>Renew</span>' : '');
   if (G.boss && !G.boss.dead && $('#bossbar').classList.contains('on')) { const bp = Math.max(0, G.boss.hp / G.boss.maxHp * 100) + '%'; $('#bossFill').style.width = bp; $('#bossTrail').style.width = bp; }
   if (G.boss && G.boss.dead) $('#bossbar').classList.remove('on');
+  if (G.story) { $('#roomBig').textContent = G.map === 'town' ? 'Frostmoor' : 'The Frozen Trail'; $('#qtrack').textContent = questLine(SAVE.story, G.map); return; }
   const [cx, cy] = cellOf(h.g.position.x, h.g.position.z);
   const room = Object.entries(ROOMS).find(([, r]) => cx >= r[0] && cx <= r[2] && cy >= r[1] && cy <= r[3]);
   $('#roomBig').textContent = room ? { A: 'The Crypt Gate', B: 'Hall of the Restless', C: 'The Ossuary', D: "The Warden's Throne" }[room[0]] : 'Dark Passage';
@@ -1074,6 +1311,7 @@ function updateCamera(dt, snap) {
   moon.position.copy(h).add(new THREE.Vector3(-8, 20, 6)); moon.target.position.copy(h);
   heroLight.position.copy(h).add(new THREE.Vector3(0, 6, 2));
   // walls between the camera and the hero become see-through
+  if (MAPNAME !== 'crypt') { TORCH_LIGHTS.forEach((L) => { L.intensity = 0; }); if (snowfall) snowfall.userData.update(dt, h); return; }
   for (const w of fadeWalls) {
     let want = 1;
     if (w.side === 'S' && w.z > h.z && w.z - h.z < 9 && Math.abs(w.x - h.x) < 11) want = 0.18;
@@ -1104,6 +1342,9 @@ function finishRun(won) {
 }
 function cleanupRun() {
   for (const u of G.party) scene.remove(u.g);
+  for (const n of G.npcs) scene.remove(n.g);
+  document.body.classList.remove('story'); document.body.classList.remove('cold');
+  $('#dlg').classList.remove('on'); $('#talk').classList.remove('on'); $('#hint').classList.remove('on'); $('#sub').classList.remove('on');
   for (const e of G.enemies) { scene.remove(e.g); e.bar.remove(); }
   for (const d of G.drops) { scene.remove(d.o); if (d.lbl) d.lbl.remove(); }
   for (const f of G.fx) { if (f.o) { fxGroup.remove(f.o); disposeObj(f.o); } if (f.m) { fxGroup.remove(f.m); disposeObj(f.m); } if (f.L && f.pooled) f.L.intensity = 0; }
@@ -1112,6 +1353,7 @@ function cleanupRun() {
   G = null; $('#hud3').classList.add('hidden'); $('#bossbar').classList.remove('on'); $('#modal').classList.remove('on'); $('#modal').innerHTML = '';
 }
 function showResult(won) {
+  if (G.story) return showStoryDefeat();
   finishRun(won);
   const cards = G.loot.slice().sort((a, b) => b.rar - a.rar).map((it, i) => `<div class="lcard r${it.rar}" style="--r:${RARITIES[it.rar].color};animation-delay:${0.4 + i * 0.15}s"><img src="art/icon_${iconOf(it)}.png" alt=""><b>${it.name}</b><small>${RARITIES[it.rar].name}</small></div>`).join('') || '<p class="empty" style="align-self:center">No gear picked up.</p>';
   const lv = G.party.map((u) => `<div class="rstat"><small>${u.C.name}</small><b>Lv ${u.level}</b></div>`).join('');
@@ -1173,6 +1415,9 @@ function frame() {
 }
 function step(dt) {
   G.t += dt;
+  for (const n of G.npcs) n.anim.update(dt);
+  if (G.talking) { updateCamera(dt); updateLabels(dt); updateHud(); return; }
+  if (G.story) storyStep(dt);
   if (G.hitstop > 0) { G.hitstop -= dt; dt *= 0.08; }
   G.potionCd = Math.max(0, G.potionCd - dt);
   for (const u of G.party) updateUnit(u, dt);
@@ -1198,7 +1443,7 @@ const WARM = [];
 function warmup() {
   const tmp = new THREE.Group(); scene.add(tmp);
   for (const c of Object.values(CLASSES)) { const m = makeModel(c.model, c.show, 1, c.tint, c.real); tmp.add(m.g); WARM.push(m); }
-  for (const k of Object.keys(ENEMY)) { const E = ENEMY[k], m = makeModel(E.model, null, E.scale); attachWeapon(m, E.weapon); tmp.add(m.g); WARM.push(m); }
+  for (const k of Object.keys(ENEMY)) { const m = buildEnemy(ENEMY[k]); tmp.add(m.g); WARM.push(m); }
   const bits = [new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), glowMat(0xffaa44)), new THREE.Mesh(new THREE.RingGeometry(1, 2, 24), glowMat(0xffffff, 0.5)),
     new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 4, 8, 1, true), glowMat(0xffffff, 0.3)), new THREE.Mesh(sparkGeo, sparkMat(0xffffff)),
     new THREE.Mesh(new THREE.OctahedronGeometry(0.3), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 1 })),
@@ -1210,15 +1455,21 @@ function warmup() {
 }
 
 // ---------------- boot ----------------
+function beginStory({ cls, gender, name }) {
+  SAVE = newStorySave(cls, gender, name); persist(); startStory('trail');
+}
 function startRun(tier) { $('#hub').classList.add('hidden'); newGame(tier); updateCamera(0, true); }
-window.HOL = { startRun, getSave: () => SAVE, setSave: (s) => { SAVE = s; }, persist, showHub: () => {} };
+window.HOL = { startStory, beginStory, openMenu: () => { if (G) { G.talking = true; window.HOL.showMenu(); } }, closeMenu: () => { if (G) { G.talking = false; refreshParty(); } }, startRun, getSave: () => SAVE, setSave: (s) => { SAVE = s; }, persist, showHub: () => {} };
 requestAnimationFrame(frame);
 (async () => {
   await loadAll(['Knight', 'Mage', 'Rogue_Hooded', 'Barbarian', 'Skeleton_Minion', 'Skeleton_Warrior', 'Skeleton_Mage', 'Skeleton_Rogue',
     ...['Skeleton_Blade', 'Skeleton_Axe', 'Skeleton_Staff'].map((n) => `assets/skelweap/${n}.gltf`), ...PROPS.map(D), ...PH_MODELS.map(PH)]);
   for (const c of Object.values(CLASSES)) if (c.real && !REAL[c.real]) { try { await loadReal(c.real); } catch (e) { console.warn('real model missing', c.real, e); c.real = null; } }
-  buildCrypt();
-  warmup();
+  try { GL['assets/wolf/wolf.glb'] = await loader.loadAsync('assets/wolf/wolf.glb'); } catch (e) { console.info('no wolf model yet, using the stand-in'); }
+  buildCrypt(); CRYPT.grid = grid.map((r) => r.slice());
+  ensureMap('trail'); ensureMap('town'); snowfall = makeSnowfall(MOBILE ? 800 : 1400); scene.add(snowfall);
+  warmup(); loadMap('crypt');
   window.HOL.ready = true; window.dispatchEvent(new Event('hol-ready'));
   if (Q.get('go')) startRun(Number(Q.get('tier')) || 0);
+  if (Q.get('story')) { if (!SAVE.story) SAVE = newStorySave(Q.get('cls') || 'mage', CLASS_GENDER[Q.get('cls') || 'mage'], 'Tester'); startStory(Q.get('story'), Q.get('hunt') ? { hunt: true, spawn: [12, 6] } : {}); }
 })();

@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/ui.css">
 <link rel="stylesheet" href="css/game3d.css">
 <link rel="stylesheet" href="css/hub.css">
+<link rel="stylesheet" href="css/story.css">
 <script type="importmap">
 { "imports": {
   "three": "./vendor/three/build/three.module.js",
@@ -21,6 +22,11 @@
 <div id="app">
   <canvas id="gl"></canvas>
   <div id="labels"></div>
+  <div id="frost"></div>
+  <div id="qtrack"></div><div id="hint"></div><div id="sub"></div>
+  <button id="talk" class="btn btn-gold"><span>TALK</span></button>
+  <div id="dlg"><div class="dbox"><div class="dhead"><b id="dname"></b><small id="dnpc"></small></div><p id="dtext"></p><div id="dbtns"></div></div></div>
+  <div id="fade"></div>
 
   <!-- battle HUD -->
   <div id="hud3" class="hidden">
@@ -37,7 +43,7 @@
     <div id="partybar"></div>
     <div id="roomLabel"><small>Hollowmere Crypt</small><b id="roomBig">The Crypt Gate</b></div>
     <div id="bossbar"><b id="bossName">The Bone Warden</b><div class="bb"><i class="hp-trail" id="bossTrail"></i><i class="bb-fill" id="bossFill"></i></div></div>
-    <div id="topright"><div class="goldpill"><img src="art/icon_gold.png" alt=""><span id="bGold">0</span></div><div class="goldpill"><img src="art/icon_chest.png" alt=""><span id="bLoot">0</span></div><button class="rbtn" id="btnSwap">SWAP</button><button class="rbtn" id="btnAuto">AUTO</button></div>
+    <div id="topright"><div class="goldpill"><img src="art/icon_gold.png" alt=""><span id="bGold">0</span></div><div class="goldpill"><img src="art/icon_chest.png" alt=""><span id="bLoot">0</span></div><button class="rbtn" id="btnMenu">MENU</button><button class="rbtn" id="btnSwap">SWAP</button><button class="rbtn" id="btnAutoSk" title="Your hero uses skills by itself">SKILLS: AUTO</button><button class="rbtn" id="btnAuto">AUTO</button></div>
     <div id="joy"><i></i></div>
     <div id="pad">
       <button class="orb orb-xl" id="btnAttack" style="--c:#ffd27a"><img src="art/skill_bash.jpg" alt=""><span class="olabel">Attack</span></button>
@@ -54,7 +60,7 @@
   <!-- camp / hub (built by js/hub.js) -->
   <div id="hub" class="overlay"></div>
 
-  <div id="rotate"><div><b>Turn your phone sideways</b><span>Hollowmere plays best in landscape</span></div></div>
+  <div id="rotate"><div><b>Turn your phone sideways</b><span>Hollowmere plays best in landscape</span><span style="display:block;margin-top:6px;font-size:12px">(If it will not turn, switch off your phone's rotation lock.)</span><button class="btn btn-steel" id="rotOk" style="margin-top:22px" onclick="document.getElementById('rotate').remove()"><span>Play anyway</span></button></div></div>
   <div id="toasts"></div>
   <div id="modal"></div>
 </div>

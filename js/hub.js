@@ -3,9 +3,11 @@ import { CLASSES, SKILLS, RARITIES, SLOTS, SLOT_INFO, STAT_LABEL, TIERS, heroSta
   partyHeroes, avgPartyLevel, idlePreview, claimIdle, XP_NEED, IDLE_CAP_MIN, ARMOR_TYPES, canWear, setInfo, itemScoreFor, autoEquip,
   STAT_KEYS, STAT_POINT_LABEL, statNote, statApplies, EMPTY_PTS, pointsUnspent, pointsSpent, resetCost } from './data.js';
 
+import { showCreate } from './create.js';
+
 const $ = (s) => document.querySelector(s);
 const hub = $('#hub');
-const ui = { tab: 'camp', hero: null, slot: 0, item: null, msg: '' };
+const ui = { tab: 'camp', hero: null, slot: 0, item: null, msg: '', inGame: false };
 let SAVE = null;
 const fmtStat = (k, v) => (k === 'crit' || k === 'haste') ? (Math.round(v * 10) / 10) + '%' : Math.round(v);
 const portrait = (hs) => `art/hero_${hs.cls}_${hs.gender}_1.png`;
@@ -16,9 +18,9 @@ const fmtTime = (m) => { m = Math.floor(m); return m >= 60 ? `${Math.floor(m / 6
 function frame(inner, cls = '') { return `<div class="frame ${cls}">${inner}<i class="cn tl"></i><i class="cn tr"></i><i class="cn bl"></i><i class="cn br"></i></div>`; }
 function tabs() {
   const open = SAVE.heroes.reduce((a, h) => a + pointsUnspent(h), 0);
-  const T = [['camp', 'Camp'], ['party', 'Party'], ['stats', 'Stats' + (open ? ` <i class="ptbadge">${open}</i>` : '')], ['skills', 'Skills'], ['gear', 'Gear']];
+  const T = [...(ui.inGame ? [] : [['camp', 'Camp']]), ['party', 'Party'], ['stats', 'Stats' + (open ? ` <i class="ptbadge">${open}</i>` : '')], ['skills', 'Skills'], ['gear', 'Gear']];
   return `<div class="hub-top"><div class="hub-title goldtext">Hollowmere</div><div class="hub-tabs">${T.map(([k, n]) => `<button class="htab ${ui.tab === k ? 'on' : ''}" data-tab="${k}">${n}</button>`).join('')}</div>
-    <div class="hub-gold"><span class="goldpill"><img src="art/icon_gold.png" alt="">${SAVE.gold.toLocaleString()}</span></div></div>`;
+    <div class="hub-gold">${ui.inGame ? '<button class="btn btn-gold btn-sm" data-back="1"><span>Back to game</span></button>' : ''}<span class="goldpill"><img src="art/icon_gold.png" alt="">${SAVE.gold.toLocaleString()}</span></div></div>`;
 }
 function heroPicker() {
   return `<div class="hpick">${SAVE.heroes.map((h) => `<button class="hp-btn ${h.id === hero().id ? 'on' : ''}" data-hero="${h.id}" style="--c:${CLASSES[h.cls].color}"><img src="${portrait(h)}" alt=""><span>${CLASSES[h.cls].name}</span><em>Lv ${h.level}</em>${pointsUnspent(h) ? `<i class="ptbadge pb">${pointsUnspent(h)}</i>` : ''}</button>`).join('')}</div>`;
@@ -135,7 +137,7 @@ function itemDetail(h) {
 // ---------- actions ----------
 function takeFrom(f) { if (f.owner) { for (const s of SLOTS) if (f.owner.gear[s] && f.owner.gear[s].id === f.it.id) delete f.owner.gear[s]; } else { const i = SAVE.bag.findIndex((x) => x.id === f.it.id); if (i >= 0) SAVE.bag.splice(i, 1); } }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-sellrar],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
+  const t = e.target.closest('[data-tab],[data-hero],[data-slot],[data-assign],[data-item],[data-equip],[data-unequip],[data-upgrade],[data-salvage],[data-sellrar],[data-back],[data-join],[data-bench],[data-lead],[data-run],[data-claim],[data-closeidle],[data-pt],[data-pt5],[data-resetpts],[data-autoequip],[data-autoequipall]');
   if (!t || hub.classList.contains('hidden') || !hub.contains(t)) return;
   const d = t.dataset;
   if (d.tab) { ui.tab = d.tab; ui.item = null; }
@@ -151,6 +153,7 @@ document.addEventListener('click', (e) => {
   else if (d.unequip) { const f = findItem(+d.unequip); if (f && SAVE.bag.length < 60) { takeFrom(f); SAVE.bag.push(f.it); ui.item = f.it.id; save(); } }
   else if (d.upgrade) { const f = findItem(+d.upgrade); if (f && SAVE.gold >= upCost(f.it) && (f.it.up || 0) < 15) { SAVE.gold -= upCost(f.it); f.it.up = (f.it.up || 0) + 1; save(); } }
   else if (d.salvage) { const i = SAVE.bag.findIndex((x) => x.id === +d.salvage); if (i >= 0) { SAVE.gold += salvageValue(SAVE.bag[i]); SAVE.bag.splice(i, 1); ui.item = null; save(); } }
+  else if (d.back) { ui.inGame = false; hub.classList.add('hidden'); window.HOL.closeMenu(); return; }
   else if (d.sellrar != null) {
     const r = +d.sellrar; let g = 0, n = 0, kept = 0;
     SAVE.bag = SAVE.bag.filter((it) => {
@@ -182,8 +185,16 @@ function render() {
   hub.innerHTML = `<img class="bgimg blur" src="art/bg_crypt3.jpg" alt=""><div class="shade-deep"></div>${tabs()}<div class="hub-body">${body}</div>${ui.msg ? `<div class="hub-msg">${ui.msg}</div>` : ''}`;
   if (ui.msg) { const m = ui.msg; setTimeout(() => { if (ui.msg === m) { ui.msg = ''; const el = hub.querySelector('.hub-msg'); if (el) el.remove(); } }, 3500); }
 }
-function showHub() { hub.classList.remove('hidden'); ui.tab = 'camp'; render(); }
+function showHub() { hub.classList.remove('hidden'); ui.inGame = false; ui.tab = 'camp'; render(); }
+function showMenu() { hub.classList.remove('hidden'); ui.inGame = true; ui.tab = 'stats'; ui.hero = null; render(); }
 window.HOL = window.HOL || {};
-function boot() { window.HOL.showHub = showHub; if (new URLSearchParams(location.search).get('go')) return; showHub(); }
+function boot() {
+  window.HOL.showHub = showHub; window.HOL.showMenu = showMenu;
+  const q = new URLSearchParams(location.search); if (q.get('go') || q.get('story')) return;
+  SAVE = window.HOL.getSave(); const st = SAVE.story;
+  if (!st) { showCreate(hub, (c) => window.HOL.beginStory(c)); return; }
+  if (st.stage === 'trail' || st.stage === 'town') { hub.classList.add('hidden'); window.HOL.startStory(st.stage); return; }
+  showHub();
+}
 if (window.HOL && window.HOL.ready) boot(); else { hub.innerHTML = '<div class="hub-loading"><h1 class="goldtext big">Hollowmere</h1><p id="loadMsg">Loading the crypt...</p></div>'; window.addEventListener('hol-ready', boot); }
-window.HOL.showHub = showHub;
+window.HOL.showHub = showHub; window.HOL.showMenu = showMenu;
